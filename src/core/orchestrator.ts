@@ -53,8 +53,9 @@ export class TurnOrchestrator {
 
     try {
       // S0: Ingest
+      const userMsgId = `msg_${ulid()}`;
       this.deps.messageRepo.insert({
-        id: `msg_${ulid()}`,
+        id: userMsgId,
         threadId: input.threadId,
         userId: input.userId,
         role: 'user',
@@ -90,21 +91,31 @@ export class TurnOrchestrator {
 
       if (sse.signal.aborted) return;
 
-      // S2 (Recall) & S3 (Route/Plan) executed in parallel
+      // S2: Recall Engine
       sse.emit('status', { stage: 'recalling', label: 'Retrieving relevant past turns & claims...' });
 
-      const [recallBundle, plan] = await Promise.all([
-        frame.refs.length > 0 || input.message.length > 10
-          ? this.deps.recallEngine.recall(input.userId, input.message, frame.refs[0])
-          : Promise.resolve({
-              window: null,
-              turns: [],
-              objects: [],
-              claims: [],
-              completeness: 'none' as const,
-            }),
-        Promise.resolve(createPlanHeuristic(input.message, frame)),
-      ]);
+      const recallBundle = await (frame.refs.length > 0 || input.message.length > 3
+        ? this.deps.recallEngine.recall(input.userId, input.message, frame.refs[0])
+        : Promise.resolve({
+            window: null,
+            turns: [],
+            objects: [],
+            claims: [],
+            completeness: 'none' as const,
+          }));
+
+      // Filter out turns without completed assistant responses and exclude the current message
+      const validPriorTurns = recallBundle.turns.filter(
+        (t) => t.assistantMsg && t.assistantMsg.content.trim().length > 0 && t.userMsg.id !== userMsgId
+      );
+
+      const effectiveRecall: RecallBundle = {
+        ...recallBundle,
+        turns: validPriorTurns,
+      };
+
+      // S3: Plan using recall context (memory-first evaluation)
+      const plan = createPlanHeuristic(input.message, frame, effectiveRecall);
 
       sse.emit('plan', {
         intent: plan.intent,
@@ -115,16 +126,20 @@ export class TurnOrchestrator {
 
       if (sse.signal.aborted) return;
 
-      // Fast-path: If chitchat or pure memory recall without search
+      // Fast-path: If chitchat or memory recall without search
       if (!plan.needsSearch) {
-        sse.emit('status', { stage: 'synthesizing', label: 'Composing direct response...' });
+        const statusLabel =
+          validPriorTurns.length > 0
+            ? 'Answering from stored conversation memory...'
+            : 'Composing direct response...';
+        sse.emit('status', { stage: 'synthesizing', label: statusLabel });
 
         const systemPrompt = PromptBuilder.buildSystemPrompt({
           nowIso,
           tz,
           weekday,
           frame,
-          recall: recallBundle,
+          recall: effectiveRecall,
         });
 
         const model = this.deps.llmGateway.getMainModel();
@@ -249,7 +264,7 @@ export class TurnOrchestrator {
         tz,
         weekday,
         frame,
-        recall: recallBundle,
+        recall: effectiveRecall,
         evidence: collectedEvidence,
       });
 

@@ -128,6 +128,48 @@ describe('Phase 4: TurnOrchestrator', () => {
     expect(msgs[1].role).toBe('assistant');
   });
 
+  it('answers from memory without web search when relevant chat history exists', async () => {
+    // Seed prior conversation
+    messageRepo.insert({
+      id: 'msg_seed_user',
+      userId: 'user_mem',
+      threadId: 'th_mem',
+      role: 'user',
+      content: 'Minimi is an ambient AI cat app by Jay, Vineet, and Ojasvika.',
+      createdAt: clock.nowMs() - 60000,
+      embeddingStatus: 'done',
+    });
+    messageRepo.insert({
+      id: 'msg_seed_asst',
+      userId: 'user_mem',
+      threadId: 'th_mem',
+      role: 'assistant',
+      content: 'Got it, Minimi is a personal intelligence app with Cotton the cat mascot.',
+      createdAt: clock.nowMs() - 55000,
+      embeddingStatus: 'done',
+    });
+
+    searchSpy.mockClear();
+    const { writer, emittedEvents } = createMockSSEWriter();
+
+    await orchestrator.runTurn(
+      {
+        userId: 'user_mem',
+        threadId: 'th_mem',
+        message: 'Who are the founders of Minimi?',
+      },
+      writer
+    );
+
+    // Search should NOT be called because memory already contains Minimi details!
+    expect(searchSpy).not.toHaveBeenCalled();
+
+    const planEvent = emittedEvents.find((e) => e.event === 'plan');
+    expect(planEvent).toBeDefined();
+    expect((planEvent!.data as { needsSearch: boolean }).needsSearch).toBe(false);
+    expect((planEvent!.data as { needsRecall: boolean }).needsRecall).toBe(true);
+  });
+
   it('halts cleanly when cancellation signal is triggered', async () => {
     const { writer, abort } = createMockSSEWriter();
     abort(); // Signal aborted immediately

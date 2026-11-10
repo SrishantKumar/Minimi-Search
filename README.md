@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5_Strict-blue.svg)](https://www.typescriptlang.org/)
 [![Fastify](https://img.shields.io/badge/Fastify-4.28-black.svg)](https://fastify.dev/)
 [![React](https://img.shields.io/badge/React-18.3-61dafb.svg)](https://react.dev/)
-[![Tests](https://img.shields.io/badge/Tests-125_Passing-brightgreen.svg)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-126_Passing-brightgreen.svg)](https://vitest.dev/)
 [![Evals](https://img.shields.io/badge/Eval_Score-100%25-success.svg)](evals/reports/latest.md)
 
 **Minimi Search** is a time-aware web-search chat agent built on the design and memory philosophy of [Minimi](https://www.projectminimi.com/). Its core differentiator is that it understands **time**, **its own past answers**, and **what has changed since**.
