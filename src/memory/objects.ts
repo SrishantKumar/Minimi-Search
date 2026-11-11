@@ -53,17 +53,17 @@ export class ContextObjectService {
     return objects;
   }
 
-  saveObjects(
+  async saveObjects(
     userId: string,
     threadId: string,
     sourceMessageId: string,
     extracted: ExtractedObjectInput[],
     createdAt = Date.now()
-  ): StoredContextObject[] {
+  ): Promise<StoredContextObject[]> {
     const saved: StoredContextObject[] = [];
 
     for (const obj of extracted) {
-      const savedObj = this.objectRepo.insert({
+      const savedObj = await this.objectRepo.insert({
         id: `obj_${ulid()}`,
         userId,
         threadId,

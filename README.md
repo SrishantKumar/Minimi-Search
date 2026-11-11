@@ -357,7 +357,7 @@ npm run dev
 
 ### Running Tests & Verification
 ```bash
-# Run unit test suite (124 tests across all components)
+# Run unit test suite (126 tests across all components)
 npm test
 
 # Run time-travel eval harness (generates evals/reports/latest.md)
@@ -370,6 +370,24 @@ npm run typecheck
 npm run build
 ```
 
+### Vercel Deployment (Serverless + Turso)
+Minimi Search is fully adapted for serverless deployment on [Vercel](https://vercel.com/) backed by [Turso Cloud SQLite](https://turso.tech/):
+1. Create a Turso database:
+   ```bash
+   turso db create minimi-db
+   turso db tokens create minimi-db
+   ```
+2. Configure environment variables in Vercel project settings:
+   - `TURSO_DATABASE_URL`: `libsql://minimi-db-[username].turso.io`
+   - `TURSO_AUTH_TOKEN`: Your Turso database token
+   - `GOOGLE_GENERATIVE_AI_API_KEY` (or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`)
+   - `TAVILY_API_KEY`: For live search
+3. Deploy directly via Vercel CLI or GitHub push:
+   ```bash
+   vercel
+   ```
+The repository includes `vercel.json` and `api/index.ts` which routes serverless functions and serves the Vite single-page application from `dist/web`.
+
 ---
 
 ## 11. Project Directory Structure
@@ -377,8 +395,10 @@ npm run build
 ```
 .
 ├── DESIGN.md                      # Architecture rationale and submission document
-├── ARCHITECTURE_AND_SRS.md        # Complete system blueprint & SRS specification
 ├── README.md                      # System documentation and architecture guide
+├── vercel.json                    # Vercel deployment configuration & routing
+├── api/
+│   └── index.ts                   # Vercel Serverless Function entry point
 ├── .env.example                   # Config template with commented keys
 ├── .cursor/rules/                 # Architectural and testing guidelines
 │   ├── architecture.mdc

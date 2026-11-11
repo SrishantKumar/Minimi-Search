@@ -104,28 +104,28 @@ export class ClaimLedgerService {
   /**
    * Insert claims with versioning & superseding
    */
-  saveClaims(
+  async saveClaims(
     userId: string,
     threadId: string,
     turnId: string,
     sourceMessageId: string,
     extracted: ExtractedClaimInput[]
-  ): StoredClaim[] {
+  ): Promise<StoredClaim[]> {
     const saved: StoredClaim[] = [];
 
     for (const item of extracted) {
       // Check if an active claim already exists for this subject + attribute
-      const existing = this.claimRepo.getBySubject(userId, item.subject);
+      const existing = await this.claimRepo.getBySubject(userId, item.subject);
       const activeMatch = existing.find(
         (c) => c.attribute === item.attribute && c.status === 'active'
       );
 
       if (activeMatch) {
-        this.claimRepo.markSuperseded(activeMatch.id);
+        await this.claimRepo.markSuperseded(activeMatch.id);
       }
 
       const claimId = `claim_${ulid()}`;
-      const newClaim = this.claimRepo.insert({
+      const newClaim = await this.claimRepo.insert({
         id: claimId,
         userId,
         threadId,

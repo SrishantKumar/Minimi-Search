@@ -72,7 +72,7 @@ async function runEvaluations() {
   for (const sc of scenarios) {
     const clock = new FixedClock(sc.referenceNow);
     const resolver = new TemporalResolver();
-    const db = createDatabase(':memory:');
+    const db = await createDatabase(':memory:');
     const messageRepo = new MessageRepository(db);
     const claimRepo = new ClaimRepository(db);
     const objectRepo = new ContextObjectRepository(db);
@@ -97,7 +97,7 @@ async function runEvaluations() {
     // Seed prior conversation if specified
     if (sc.seededTurn) {
       const pastTime = new Date(sc.seededTurn.date).getTime();
-      messageRepo.insert({
+      await messageRepo.insert({
         id: 'seed_u',
         threadId,
         userId,
@@ -107,7 +107,7 @@ async function runEvaluations() {
         embeddingStatus: 'done',
       });
 
-      messageRepo.insert({
+      await messageRepo.insert({
         id: 'seed_a',
         threadId,
         userId,
@@ -119,7 +119,7 @@ async function runEvaluations() {
 
       // If user message in seed contains shortlist, extract and save it
       if (sc.seededTurn.user.includes('shortlisting')) {
-        objectRepo.insert({
+        await objectRepo.insert({
           id: 'seed_obj',
           userId,
           threadId,
@@ -196,7 +196,7 @@ async function runEvaluations() {
     // Check fabrication honesty
     if (sc.expect.neverFabricate) {
       totalFabricationTraps++;
-      const assistantMsgs = messageRepo.getThreadMessages(threadId).filter((m) => m.role === 'assistant');
+      const assistantMsgs = (await messageRepo.getThreadMessages(threadId)).filter((m) => m.role === 'assistant');
       const text = assistantMsgs.map((m) => m.content).join(' ');
       // Should not claim any fabricated question
       if (!text.toLowerCase().includes('you asked about quantum physics')) {

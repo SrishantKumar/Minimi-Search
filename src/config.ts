@@ -6,6 +6,8 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.coerce.number().default(8787),
   DATABASE_PATH: z.string().default('./data/chronos.db'),
+  TURSO_DATABASE_URL: z.string().optional(),
+  TURSO_AUTH_TOKEN: z.string().optional(),
   COOKIE_SECRET: z.string().min(16).default('chronos-dev-secret-key-32-chars-min'),
   DEFAULT_TZ: z.string().default('UTC'),
   LOG_LEVEL: z.string().default('info'),

@@ -6,11 +6,10 @@ import { ClaimWatcher } from './watcher.js';
 import { SearchGateway } from '../search/gateway.js';
 import { MockSearchProvider } from '../search/providers/mock.js';
 import { FixedClock } from '../time/clock.js';
-import type { EvidenceItem } from '../search/types.js';
 
 describe('ClaimWatcher', () => {
   it('identifies and updates stale volatile claims', async () => {
-    const db = createDatabase(':memory:');
+    const db = await createDatabase(':memory:');
 
     const threadRepo = new ThreadRepository(db);
     const messageRepo = new MessageRepository(db);
@@ -18,8 +17,8 @@ describe('ClaimWatcher', () => {
     const claimLedger = new ClaimLedgerService(claimRepo);
 
     const clock = new FixedClock(Date.parse('2026-11-10T12:00:00Z'));
-    const thread = threadRepo.upsert('th1', 'u1', 'Pricing Thread');
-    const msg = messageRepo.insert({
+    const thread = await threadRepo.upsert('th1', 'u1', 'Pricing Thread');
+    const msg = await messageRepo.insert({
       id: 'm1',
       threadId: thread.id,
       userId: 'u1',
@@ -30,7 +29,7 @@ describe('ClaimWatcher', () => {
     });
 
     // Seed old volatile claim
-    claimRepo.insert({
+    await claimRepo.insert({
       id: 'c1',
       userId: 'u1',
       threadId: thread.id,
@@ -78,7 +77,7 @@ describe('ClaimWatcher', () => {
     expect(result.deltas[0].newValue).toBe('15 /mo');
 
     // Confirm old claim was superseded and new claim active
-    const activeClaims = claimRepo.getBySubject('u1', 'HubSpot');
+    const activeClaims = await claimRepo.getBySubject('u1', 'HubSpot');
     expect(activeClaims.length).toBe(1);
     expect(activeClaims[0].value).toBe('15');
     expect(activeClaims[0].supersedes).toBe('c1');

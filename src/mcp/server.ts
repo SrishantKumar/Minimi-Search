@@ -23,8 +23,8 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
-export function startMcpServer(): void {
-  const db = createDatabase();
+export async function startMcpServer(): Promise<void> {
+  const db = await createDatabase();
   const messageRepo = new MessageRepository(db);
   const claimRepo = new ClaimRepository(db);
   const objectRepo = new ContextObjectRepository(db);

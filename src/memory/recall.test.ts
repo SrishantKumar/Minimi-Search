@@ -8,10 +8,10 @@ import {
 import { SqliteBlobVectorIndex } from './store/vector-index.js';
 import { RecallEngine } from './recall.js';
 import { TemporalResolver } from '../time/resolver.js';
-import type Database from 'better-sqlite3';
+import type { Client } from '@libsql/client';
 
 describe('Phase 3: Store & RecallEngine', () => {
-  let db: Database.Database;
+  let db: Client;
   let messageRepo: MessageRepository;
   let claimRepo: ClaimRepository;
   let objectRepo: ContextObjectRepository;
@@ -22,8 +22,8 @@ describe('Phase 3: Store & RecallEngine', () => {
   const userId = 'user_eval_01';
   const nowFixed = '2026-11-10T14:00:00Z'; // Tuesday 10 Nov
 
-  beforeEach(() => {
-    db = createDatabase(':memory:');
+  beforeEach(async () => {
+    db = await createDatabase(':memory:');
     messageRepo = new MessageRepository(db);
     claimRepo = new ClaimRepository(db);
     objectRepo = new ContextObjectRepository(db);
@@ -36,7 +36,7 @@ describe('Phase 3: Store & RecallEngine', () => {
     const nov3Timestamp = new Date('2026-11-03T10:15:00Z').getTime();
     const threadId = 'thread_nov3';
 
-    messageRepo.insert({
+    await messageRepo.insert({
       id: 'msg_u1',
       threadId,
       userId,
@@ -46,7 +46,7 @@ describe('Phase 3: Store & RecallEngine', () => {
       embeddingStatus: 'done',
     });
 
-    messageRepo.insert({
+    await messageRepo.insert({
       id: 'msg_a1',
       threadId,
       userId,
@@ -58,7 +58,7 @@ describe('Phase 3: Store & RecallEngine', () => {
     });
 
     // Also record structured claim from that answer
-    claimRepo.insert({
+    await claimRepo.insert({
       id: 'claim_1',
       userId,
       threadId,
@@ -113,17 +113,17 @@ describe('Phase 3: Store & RecallEngine', () => {
     expect(bundle.turns.length).toBe(0);
   });
 
-  it('performs vector insertion and brute-force cosine nearest neighbor retrieval', () => {
+  it('performs vector insertion and brute-force cosine nearest neighbor retrieval', async () => {
     // Dimension 4 test vectors
     const v1 = new Float32Array([1.0, 0.0, 0.0, 0.0]); // Vector 1
     const v2 = new Float32Array([0.9, 0.1, 0.0, 0.0]); // Very close to v1
     const v3 = new Float32Array([0.0, 1.0, 0.0, 0.0]); // Orthogonal to v1
 
-    vectorIndex.insert('doc_1', v1);
-    vectorIndex.insert('doc_2', v2);
-    vectorIndex.insert('doc_3', v3);
+    await vectorIndex.insert('doc_1', v1);
+    await vectorIndex.insert('doc_2', v2);
+    await vectorIndex.insert('doc_3', v3);
 
-    const matches = vectorIndex.search(v1, 2);
+    const matches = await vectorIndex.search(v1, 2);
     expect(matches.length).toBe(2);
     expect(matches[0].id).toBe('doc_1');
     expect(matches[0].score).toBeCloseTo(1.0, 3);
@@ -131,4 +131,3 @@ describe('Phase 3: Store & RecallEngine', () => {
     expect(matches[1].score).toBeGreaterThan(0.9);
   });
 });
-

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { TurnOrchestrator } from './orchestrator.js';
 import { FixedClock } from '../time/clock.js';
 import { TemporalResolver } from '../time/resolver.js';
@@ -15,29 +15,42 @@ import { MockSearchProvider } from '../search/providers/mock.js';
 import { LLMGateway } from '../llm/gateway.js';
 import type { SSEWriter } from '../server/sse.js';
 import type { SSEEventName, SSEEventData } from './events.js';
+import type { Client } from '@libsql/client';
 
 describe('Phase 4: TurnOrchestrator', () => {
   const clock = new FixedClock('2026-11-10T14:00:00Z');
   const resolver = new TemporalResolver();
-  const db = createDatabase(':memory:');
-  const messageRepo = new MessageRepository(db);
-  const claimRepo = new ClaimRepository(db);
-  const objectRepo = new ContextObjectRepository(db);
-  const vectorIndex = new SqliteBlobVectorIndex(db);
-  const recallEngine = new RecallEngine(messageRepo, claimRepo, objectRepo, vectorIndex);
+  let db: Client;
+  let messageRepo: MessageRepository;
+  let claimRepo: ClaimRepository;
+  let objectRepo: ContextObjectRepository;
+  let vectorIndex: SqliteBlobVectorIndex;
+  let recallEngine: RecallEngine;
+  let mockSearch: MockSearchProvider;
+  let searchSpy: any;
+  let searchGateway: SearchGateway;
+  let llmGateway: LLMGateway;
+  let orchestrator: TurnOrchestrator;
 
-  const mockSearch = new MockSearchProvider();
-  const searchSpy = vi.spyOn(mockSearch, 'search');
-  const searchGateway = new SearchGateway([mockSearch]);
-  const llmGateway = new LLMGateway({ mainModelSpec: 'mock:test-model' });
-
-  const orchestrator = new TurnOrchestrator({
-    clock,
-    resolver,
-    recallEngine,
-    searchGateway,
-    llmGateway,
-    messageRepo,
+  beforeAll(async () => {
+    db = await createDatabase(':memory:');
+    messageRepo = new MessageRepository(db);
+    claimRepo = new ClaimRepository(db);
+    objectRepo = new ContextObjectRepository(db);
+    vectorIndex = new SqliteBlobVectorIndex(db);
+    recallEngine = new RecallEngine(messageRepo, claimRepo, objectRepo, vectorIndex);
+    mockSearch = new MockSearchProvider();
+    searchSpy = vi.spyOn(mockSearch, 'search');
+    searchGateway = new SearchGateway([mockSearch]);
+    llmGateway = new LLMGateway({ mainModelSpec: 'mock:test-model' });
+    orchestrator = new TurnOrchestrator({
+      clock,
+      resolver,
+      recallEngine,
+      searchGateway,
+      llmGateway,
+      messageRepo,
+    });
   });
 
   function createMockSSEWriter(): {
@@ -123,14 +136,14 @@ describe('Phase 4: TurnOrchestrator', () => {
     expect(tokenEvents.length).toBeGreaterThan(0);
 
     // Assistant response was saved to messageRepo
-    const msgs = messageRepo.getThreadMessages('th_research');
+    const msgs = await messageRepo.getThreadMessages('th_research');
     expect(msgs.length).toBe(2); // 1 user + 1 assistant
     expect(msgs[1].role).toBe('assistant');
   });
 
   it('answers from memory without web search when relevant chat history exists', async () => {
     // Seed prior conversation
-    messageRepo.insert({
+    await messageRepo.insert({
       id: 'msg_seed_user',
       userId: 'user_mem',
       threadId: 'th_mem',
@@ -139,7 +152,7 @@ describe('Phase 4: TurnOrchestrator', () => {
       createdAt: clock.nowMs() - 60000,
       embeddingStatus: 'done',
     });
-    messageRepo.insert({
+    await messageRepo.insert({
       id: 'msg_seed_asst',
       userId: 'user_mem',
       threadId: 'th_mem',
@@ -184,7 +197,7 @@ describe('Phase 4: TurnOrchestrator', () => {
     );
 
     // No assistant message saved since it was cancelled
-    const msgs = messageRepo.getThreadMessages('th_cancel');
+    const msgs = await messageRepo.getThreadMessages('th_cancel');
     const asstMsg = msgs.find((m) => m.role === 'assistant');
     expect(asstMsg).toBeUndefined();
   });

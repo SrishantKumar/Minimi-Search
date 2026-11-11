@@ -3,10 +3,10 @@ import { createDatabase } from './store/db.js';
 import { ClaimRepository } from './store/repository.js';
 import { ClaimLedgerService } from './claims.js';
 import { SqliteJobQueue } from '../workers/job-queue.js';
-import type Database from 'better-sqlite3';
+import type { Client } from '@libsql/client';
 
 describe('Phase 5: Claim Ledger & Delta Engine', () => {
-  let db: Database.Database;
+  let db: Client;
   let claimRepo: ClaimRepository;
   let claimsService: ClaimLedgerService;
   let jobQueue: SqliteJobQueue;
@@ -14,8 +14,8 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
   const userId = 'user_claims_eval';
   const threadId = 'th_postgres_01';
 
-  beforeEach(() => {
-    db = createDatabase(':memory:');
+  beforeEach(async () => {
+    db = await createDatabase(':memory:');
     claimRepo = new ClaimRepository(db);
     claimsService = new ClaimLedgerService(claimRepo);
     jobQueue = new SqliteJobQueue(db);
@@ -35,10 +35,10 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
     expect(supabase!.value).toBe('25');
   });
 
-  it('supersedes previous active claim when a new claim for the same subject is recorded', () => {
+  it('supersedes previous active claim when a new claim for the same subject is recorded', async () => {
     // Initial claim on 3 Nov 2026
     const nov3 = new Date('2026-11-03T10:00:00Z').getTime();
-    claimsService.saveClaims(userId, threadId, 'turn_1', 'msg_1', [
+    await claimsService.saveClaims(userId, threadId, 'turn_1', 'msg_1', [
       {
         subject: 'Supabase Pro',
         attribute: 'price_usd',
@@ -50,14 +50,14 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
       },
     ]);
 
-    const activeBefore = claimRepo.getBySubject(userId, 'Supabase Pro');
+    const activeBefore = await claimRepo.getBySubject(userId, 'Supabase Pro');
     expect(activeBefore.length).toBe(1);
     expect(activeBefore[0].value).toBe('25');
     const firstClaimId = activeBefore[0].id;
 
     // Mutated update on 10 Nov 2026
     const nov10 = new Date('2026-11-10T12:00:00Z').getTime();
-    claimsService.saveClaims(userId, threadId, 'turn_2', 'msg_2', [
+    await claimsService.saveClaims(userId, threadId, 'turn_2', 'msg_2', [
       {
         subject: 'Supabase Pro',
         attribute: 'price_usd',
@@ -70,17 +70,17 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
     ]);
 
     // Active claim is now the updated one, linking back via supersedes
-    const activeAfter = claimRepo.getBySubject(userId, 'Supabase Pro');
+    const activeAfter = await claimRepo.getBySubject(userId, 'Supabase Pro');
     expect(activeAfter[0].value).toBe('29');
     expect(activeAfter[0].supersedes).toBe(firstClaimId);
   });
 
-  it('detects changes vs fresh mutated evidence in sample prompt 3 (Postgres hosting delta)', () => {
+  it('detects changes vs fresh mutated evidence in sample prompt 3 (Postgres hosting delta)', async () => {
     const asOfNov3 = new Date('2026-11-03T10:00:00Z').getTime();
 
     // 1. Prior recorded claims from 3 Nov
     const priorClaims = [
-      claimRepo.insert({
+      await claimRepo.insert({
         id: 'claim_supabase',
         userId,
         threadId,
@@ -97,7 +97,7 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
         createdAt: asOfNov3,
         embeddingStatus: 'done',
       }),
-      claimRepo.insert({
+      await claimRepo.insert({
         id: 'claim_neon',
         userId,
         threadId,
@@ -170,7 +170,7 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
     });
 
     expect(jobId).toBeDefined();
-    expect(jobQueue.getPendingCount()).toBe(1);
+    expect(await jobQueue.getPendingCount()).toBe(1);
 
     let processed = false;
     const handled = await jobQueue.processNext(async (job) => {
@@ -181,7 +181,6 @@ describe('Phase 5: Claim Ledger & Delta Engine', () => {
 
     expect(handled).toBe(true);
     expect(processed).toBe(true);
-    expect(jobQueue.getPendingCount()).toBe(0);
+    expect(await jobQueue.getPendingCount()).toBe(0);
   });
 });
-

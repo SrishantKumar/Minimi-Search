@@ -48,12 +48,12 @@ export class RecallEngine {
       };
 
       if (!isNaN(startMs) && !isNaN(endMs)) {
-        windowMessages = this.messageRepo.getByTimeWindow(userId, startMs, endMs);
+        windowMessages = await this.messageRepo.getByTimeWindow(userId, startMs, endMs);
       }
     }
 
     // Strategy 2: Lexical FTS5 retrieval
-    const ftsMessages = this.messageRepo.searchFts(userId, query, 10);
+    const ftsMessages = await this.messageRepo.searchFts(userId, query, 10);
 
     // Combine & deduplicate messages with Reciprocal Rank Fusion (RRF)
     const scoredMap = new Map<string, { msg: StoredMessage; score: number }>();
@@ -108,7 +108,7 @@ export class RecallEngine {
     // Fetch full thread contexts for candidates to pair Q & A correctly
     for (const msg of candidates) {
       if (!threadMap.has(msg.threadId)) {
-        threadMap.set(msg.threadId, this.messageRepo.getThreadMessages(msg.threadId));
+        threadMap.set(msg.threadId, await this.messageRepo.getThreadMessages(msg.threadId));
       }
     }
 
@@ -134,14 +134,14 @@ export class RecallEngine {
     }
 
     // Retrieve associated context objects (e.g. shortlists)
-    const objects = this.objectRepo.getByType(userId, 'shortlist');
+    const objects = await this.objectRepo.getByType(userId, 'shortlist');
 
     // Retrieve associated claims
     const claims: StoredClaim[] = [];
     for (const turn of turns) {
       if (turn.assistantMsg) {
         // Find claims from this turn or thread
-        const found = this.claimRepo.getBySubject(userId, '');
+        const found = await this.claimRepo.getBySubject(userId, '');
         claims.push(...found.filter((c) => c.threadId === turn.threadId));
       }
     }

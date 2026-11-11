@@ -54,7 +54,7 @@ export class TurnOrchestrator {
     try {
       // S0: Ingest
       const userMsgId = `msg_${ulid()}`;
-      this.deps.messageRepo.insert({
+      await this.deps.messageRepo.insert({
         id: userMsgId,
         threadId: input.threadId,
         userId: input.userId,
@@ -68,7 +68,7 @@ export class TurnOrchestrator {
       if (this.objectService) {
         const extractedObjs = this.objectService.extractFromText(input.message);
         if (extractedObjs.length > 0) {
-          this.objectService.saveObjects(input.userId, input.threadId, `msg_${ulid()}`, extractedObjs, startTime);
+          await this.objectService.saveObjects(input.userId, input.threadId, `msg_${ulid()}`, extractedObjs, startTime);
         }
       }
 
@@ -162,7 +162,7 @@ export class TurnOrchestrator {
 
         if (!sse.signal.aborted) {
           // S8: Persist
-          this.deps.messageRepo.insert({
+          await this.deps.messageRepo.insert({
             id: `msg_${ulid()}`,
             threadId: input.threadId,
             userId: input.userId,
@@ -307,7 +307,7 @@ export class TurnOrchestrator {
         }
 
         // S8: Persist
-        this.deps.messageRepo.insert({
+        await this.deps.messageRepo.insert({
           id: `msg_${ulid()}`,
           threadId: input.threadId,
           userId: input.userId,

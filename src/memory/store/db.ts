@@ -1,40 +1,38 @@
-import Database from 'better-sqlite3';
+import { createClient, type Client } from '@libsql/client';
 import path from 'path';
 import fs from 'fs';
 import { config } from '../../config.js';
 
-export function createDatabase(customPath?: string): Database.Database {
-  const dbPath = customPath || config.DATABASE_PATH;
-  if (dbPath !== ':memory:') {
-    const dir = path.dirname(dbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+export async function createDatabase(customPath?: string): Promise<Client> {
+  let url: string;
+  let authToken: string | undefined = undefined;
+
+  if (customPath) {
+    url = customPath === ':memory:' ? 'file::memory:' : (customPath.startsWith('file:') ? customPath : `file:${customPath}`);
+  } else if (config.TURSO_DATABASE_URL) {
+    url = config.TURSO_DATABASE_URL;
+    authToken = config.TURSO_AUTH_TOKEN;
+  } else {
+    const dbPath = config.DATABASE_PATH;
+    if (dbPath === ':memory:') {
+      url = 'file::memory:';
+    } else {
+      const resolved = dbPath.startsWith('file:') ? dbPath.slice(5) : dbPath;
+      const dir = path.dirname(resolved);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      url = `file:${resolved}`;
     }
   }
 
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
-
-  // Attempt to load sqlite-vec if available
-  try {
-    // Look for sqlite-vec extension if installed
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sqliteVec = require('sqlite-vec');
-    if (sqliteVec?.load) {
-      sqliteVec.load(db);
-    }
-  } catch {
-    // Fallback to SQLite BLOB cosine store
-  }
-
-  initSchema(db);
-  return db;
+  const client = createClient({ url, authToken });
+  await initSchema(client);
+  return client;
 }
 
-function initSchema(db: Database.Database): void {
-  db.exec(`
+export async function initSchema(client: Client): Promise<void> {
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       created_at INTEGER NOT NULL,
@@ -140,4 +138,3 @@ function initSchema(db: Database.Database): void {
     );
   `);
 }
-

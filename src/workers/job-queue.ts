@@ -1,5 +1,5 @@
 import { ulid } from 'ulidx';
-import type Database from 'better-sqlite3';
+import type { Client } from '@libsql/client';
 
 export type JobKind = 'extract_claims' | 'extract_objects' | 'embed';
 
@@ -17,24 +17,25 @@ export interface StoredJob {
 export interface JobQueue {
   enqueue(kind: JobKind, payload: Record<string, unknown>): Promise<string>;
   processNext(handler: (job: StoredJob) => Promise<void>): Promise<boolean>;
-  getPendingCount(): number;
+  getPendingCount(): Promise<number>;
 }
 
 export class SqliteJobQueue implements JobQueue {
-  private readonly insertStmt: Database.Statement;
-  private readonly selectNextStmt: Database.Statement;
-  private readonly markRunningStmt: Database.Statement;
-  private readonly markDoneStmt: Database.Statement;
-  private readonly markFailedStmt: Database.Statement;
-  private readonly countPendingStmt: Database.Statement;
+  constructor(private readonly db: Client) {}
 
-  constructor(private readonly db: Database.Database) {
-    this.insertStmt = db.prepare(`
-      INSERT INTO jobs (id, kind, payload, status, attempts, created_at, updated_at)
-      VALUES (?, ?, ?, 'queued', 0, ?, ?)
-    `);
+  async enqueue(kind: JobKind, payload: Record<string, unknown>): Promise<string> {
+    const id = `job_${ulid()}`;
+    const now = Date.now();
+    await this.db.execute({
+      sql: `INSERT INTO jobs (id, kind, payload, status, attempts, created_at, updated_at)
+            VALUES (?, ?, ?, 'queued', 0, ?, ?)`,
+      args: [id, kind, JSON.stringify(payload), now, now],
+    });
+    return id;
+  }
 
-    this.selectNextStmt = db.prepare(`
+  async processNext(handler: (job: StoredJob) => Promise<void>): Promise<boolean> {
+    const res = await this.db.execute(`
       SELECT id, kind, payload, status, attempts, last_error, created_at, updated_at
       FROM jobs
       WHERE status = 'queued' OR (status = 'failed' AND attempts < 3)
@@ -42,77 +43,46 @@ export class SqliteJobQueue implements JobQueue {
       LIMIT 1
     `);
 
-    this.markRunningStmt = db.prepare(`
-      UPDATE jobs SET status = 'running', attempts = attempts + 1, updated_at = ?
-      WHERE id = ?
-    `);
-
-    this.markDoneStmt = db.prepare(`
-      UPDATE jobs SET status = 'done', updated_at = ?
-      WHERE id = ?
-    `);
-
-    this.markFailedStmt = db.prepare(`
-      UPDATE jobs SET status = 'failed', last_error = ?, updated_at = ?
-      WHERE id = ?
-    `);
-
-    this.countPendingStmt = db.prepare(`
-      SELECT COUNT(*) as count FROM jobs WHERE status IN ('queued', 'running')
-    `);
-  }
-
-  async enqueue(kind: JobKind, payload: Record<string, unknown>): Promise<string> {
-    const id = `job_${ulid()}`;
-    const now = Date.now();
-    this.insertStmt.run(id, kind, JSON.stringify(payload), now, now);
-    return id;
-  }
-
-  async processNext(handler: (job: StoredJob) => Promise<void>): Promise<boolean> {
-    const row = this.selectNextStmt.get() as
-      | {
-          id: string;
-          kind: JobKind;
-          payload: string;
-          status: 'queued' | 'running' | 'done' | 'failed';
-          attempts: number;
-          last_error: string | null;
-          created_at: number;
-          updated_at: number;
-        }
-      | undefined;
-
-    if (!row) return false;
+    if (res.rows.length === 0) return false;
+    const row: any = res.rows[0];
 
     const job: StoredJob = {
-      id: row.id,
-      kind: row.kind,
-      payload: JSON.parse(row.payload),
-      status: row.status,
-      attempts: row.attempts,
-      lastError: row.last_error || undefined,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: String(row.id),
+      kind: row.kind as JobKind,
+      payload: JSON.parse(String(row.payload)),
+      status: row.status as 'queued' | 'running' | 'done' | 'failed',
+      attempts: Number(row.attempts),
+      lastError: row.last_error ? String(row.last_error) : undefined,
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
     };
 
     const now = Date.now();
-    this.markRunningStmt.run(now, job.id);
+    await this.db.execute({
+      sql: 'UPDATE jobs SET status = ?, attempts = attempts + 1, updated_at = ? WHERE id = ?',
+      args: ['running', now, job.id],
+    });
 
     try {
       await handler(job);
-      this.markDoneStmt.run(Date.now(), job.id);
+      await this.db.execute({
+        sql: 'UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?',
+        args: ['done', Date.now(), job.id],
+      });
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.markFailedStmt.run(msg, Date.now(), job.id);
+      await this.db.execute({
+        sql: 'UPDATE jobs SET status = ?, last_error = ?, updated_at = ? WHERE id = ?',
+        args: ['failed', msg, Date.now(), job.id],
+      });
       return false;
     }
   }
 
-  getPendingCount(): number {
-    const res = this.countPendingStmt.get() as { count: number };
-    return res.count;
+  async getPendingCount(): Promise<number> {
+    const res = await this.db.execute("SELECT COUNT(*) as count FROM jobs WHERE status IN ('queued', 'running')");
+    if (res.rows.length === 0) return 0;
+    return Number((res.rows[0] as any).count);
   }
 }
-

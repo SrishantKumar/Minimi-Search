@@ -63,7 +63,7 @@ export class ClaimWatcher {
     const limit = this.config?.limitPerTick ?? 5;
     const cutoff = now - maxAge;
 
-    const staleClaims = this.claimRepo.getVolatileClaims(cutoff, limit);
+    const staleClaims = await this.claimRepo.getVolatileClaims(cutoff, limit);
     if (staleClaims.length === 0) {
       return { checkedCount: 0, changedCount: 0, deltas: [] };
     }
@@ -85,7 +85,7 @@ export class ClaimWatcher {
         allDeltas.push(d);
         if (d.status === 'changed' && d.newValue) {
           const rawValue = d.newValue.replace(/[^\d.]/g, '');
-          this.claimLedger.saveClaims(
+          await this.claimLedger.saveClaims(
             claim.userId,
             claim.threadId,
             claim.turnId,

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { Client } from '@libsql/client';
 
 export interface VectorIndexMatch {
   id: string;
@@ -6,41 +6,28 @@ export interface VectorIndexMatch {
 }
 
 export interface VectorIndex {
-  insert(id: string, vector: Float32Array): void;
-  search(queryVector: Float32Array, topK?: number): VectorIndexMatch[];
-  delete(id: string): void;
+  insert(id: string, vector: Float32Array): Promise<void>;
+  search(queryVector: Float32Array, topK?: number): Promise<VectorIndexMatch[]>;
+  delete(id: string): Promise<void>;
 }
 
 export class SqliteBlobVectorIndex implements VectorIndex {
-  private readonly insertStmt: Database.Statement;
-  private readonly selectAllStmt: Database.Statement;
-  private readonly deleteStmt: Database.Statement;
+  constructor(private readonly db: Client) {}
 
-  constructor(private readonly db: Database.Database) {
-    this.insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO message_embeddings (message_id, dim, vec)
-      VALUES (?, ?, ?)
-    `);
-
-    this.selectAllStmt = db.prepare(`
-      SELECT message_id, dim, vec FROM message_embeddings
-    `);
-
-    this.deleteStmt = db.prepare(`
-      DELETE FROM message_embeddings WHERE message_id = ?
-    `);
-  }
-
-  insert(id: string, vector: Float32Array): void {
+  async insert(id: string, vector: Float32Array): Promise<void> {
     const buffer = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
-    this.insertStmt.run(id, vector.length, buffer);
+    await this.db.execute({
+      sql: 'INSERT OR REPLACE INTO message_embeddings (message_id, dim, vec) VALUES (?, ?, ?)',
+      args: [id, vector.length, buffer],
+    });
   }
 
-  search(queryVector: Float32Array, topK = 10): VectorIndexMatch[] {
-    const rows = this.selectAllStmt.all() as Array<{
+  async search(queryVector: Float32Array, topK = 10): Promise<VectorIndexMatch[]> {
+    const res = await this.db.execute('SELECT message_id, dim, vec FROM message_embeddings');
+    const rows = res.rows as unknown as Array<{
       message_id: string;
       dim: number;
-      vec: Buffer;
+      vec: ArrayBuffer | Buffer;
     }>;
 
     const queryNorm = vectorNorm(queryVector);
@@ -49,11 +36,12 @@ export class SqliteBlobVectorIndex implements VectorIndex {
     const matches: VectorIndexMatch[] = [];
 
     for (const row of rows) {
-      if (row.dim !== queryVector.length) continue;
+      if (Number(row.dim) !== queryVector.length) continue;
+      const buf = Buffer.isBuffer(row.vec) ? row.vec : Buffer.from(row.vec);
       const targetVector = new Float32Array(
-        row.vec.buffer,
-        row.vec.byteOffset,
-        row.dim
+        buf.buffer,
+        buf.byteOffset,
+        Number(row.dim)
       );
 
       const targetNorm = vectorNorm(targetVector);
@@ -66,7 +54,7 @@ export class SqliteBlobVectorIndex implements VectorIndex {
 
       const cosineSimilarity = dotProduct / (queryNorm * targetNorm);
       matches.push({
-        id: row.message_id,
+        id: String(row.message_id),
         score: Math.max(0, Math.min(1, cosineSimilarity)),
       });
     }
@@ -74,8 +62,11 @@ export class SqliteBlobVectorIndex implements VectorIndex {
     return matches.sort((a, b) => b.score - a.score).slice(0, topK);
   }
 
-  delete(id: string): void {
-    this.deleteStmt.run(id);
+  async delete(id: string): Promise<void> {
+    await this.db.execute({
+      sql: 'DELETE FROM message_embeddings WHERE message_id = ?',
+      args: [id],
+    });
   }
 }
 
@@ -86,4 +77,3 @@ function vectorNorm(v: Float32Array): number {
   }
   return Math.sqrt(sumSq);
 }
-

@@ -4,16 +4,16 @@ import { ContextObjectRepository } from './store/repository.js';
 import { ContextObjectService } from './objects.js';
 import { SearchGateway } from '../search/gateway.js';
 import { MockSearchProvider } from '../search/providers/mock.js';
-import type Database from 'better-sqlite3';
+import type { Client } from '@libsql/client';
 
 describe('Phase 6: Context Objects & CRM Shortlist Pipeline', () => {
-  let db: Database.Database;
+  let db: Client;
   let objectRepo: ContextObjectRepository;
   let objectService: ContextObjectService;
   let searchGateway: SearchGateway;
 
-  beforeEach(() => {
-    db = createDatabase(':memory:');
+  beforeEach(async () => {
+    db = await createDatabase(':memory:');
     objectRepo = new ContextObjectRepository(db);
     objectService = new ContextObjectService(objectRepo);
     searchGateway = new SearchGateway([new MockSearchProvider()]);
@@ -55,4 +55,3 @@ describe('Phase 6: Context Objects & CRM Shortlist Pipeline', () => {
     expect(evidence[evidence.length - 1].id).toBe(`E${evidence.length}`);
   });
 });
-

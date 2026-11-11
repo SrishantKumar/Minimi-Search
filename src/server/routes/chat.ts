@@ -33,7 +33,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
   const resolver = new TemporalResolver();
 
   // Storage and repositories
-  const db = createDatabase();
+  const db = await createDatabase();
   const threadRepo = new ThreadRepository(db);
   const messageRepo = new MessageRepository(db);
   const claimRepo = new ClaimRepository(db);
@@ -87,7 +87,7 @@ export const chatRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Register / update thread in SQLite
     const titleSnippet = message.slice(0, 40) + (message.length > 40 ? '...' : '');
-    threadRepo.upsert(threadId, userId, titleSnippet);
+    await threadRepo.upsert(threadId, userId, titleSnippet);
 
     // Hijack response for SSE
     reply.hijack();

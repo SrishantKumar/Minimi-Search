@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import type Database from 'better-sqlite3';
+import type { Client } from '@libsql/client';
 
 export interface StoredMessage {
   id: string;
@@ -39,7 +39,7 @@ export interface StoredContextObject {
   id: string;
   userId: string;
   threadId: string;
-  type: string; // 'shortlist' | 'constraint' | 'topic' | 'preference'
+  type: string;
   label: string;
   members: string[];
   attributes?: Record<string, unknown>;
@@ -74,26 +74,26 @@ export function computeHourBucket(timestampMs: number): number {
 }
 
 export class ThreadRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Client) {}
 
-  upsert(id: string, userId: string, title?: string): StoredThread {
+  async upsert(id: string, userId: string, title?: string): Promise<StoredThread> {
     const now = Date.now();
-    const existing = this.getById(id);
+    const existing = await this.getById(id);
 
     if (existing) {
       const updatedTitle = title || existing.title;
-      this.db
-        .prepare('UPDATE threads SET title = ?, updated_at = ? WHERE id = ?')
-        .run(updatedTitle, now, id);
+      await this.db.execute({
+        sql: 'UPDATE threads SET title = ?, updated_at = ? WHERE id = ?',
+        args: [updatedTitle, now, id],
+      });
       return { ...existing, title: updatedTitle, updatedAt: now };
     }
 
     const newTitle = title || 'New Conversation';
-    this.db
-      .prepare(
-        'INSERT INTO threads (id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-      )
-      .run(id, userId, newTitle, now, now);
+    await this.db.execute({
+      sql: 'INSERT INTO threads (id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      args: [id, userId, newTitle, now, now],
+    });
 
     return {
       id,
@@ -104,89 +104,81 @@ export class ThreadRepository {
     };
   }
 
-  listByUser(userId: string): StoredThread[] {
-    const stmt = this.db.prepare(
-      'SELECT id, user_id, title, created_at, updated_at FROM threads WHERE user_id = ? ORDER BY updated_at DESC'
-    );
-    const rows = stmt.all(userId) as Array<{
-      id: string;
-      user_id: string;
-      title: string;
-      created_at: number;
-      updated_at: number;
-    }>;
+  async listByUser(userId: string): Promise<StoredThread[]> {
+    const res = await this.db.execute({
+      sql: 'SELECT id, user_id, title, created_at, updated_at FROM threads WHERE user_id = ? ORDER BY updated_at DESC',
+      args: [userId],
+    });
 
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      title: r.title,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+    return res.rows.map((r: any) => ({
+      id: String(r.id),
+      userId: String(r.user_id),
+      title: String(r.title),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
     }));
   }
 
-  getById(id: string): StoredThread | null {
-    const stmt = this.db.prepare(
-      'SELECT id, user_id, title, created_at, updated_at FROM threads WHERE id = ?'
-    );
-    const row = stmt.get(id) as
-      | {
-          id: string;
-          user_id: string;
-          title: string;
-          created_at: number;
-          updated_at: number;
-        }
-      | undefined;
+  async getById(id: string): Promise<StoredThread | null> {
+    const res = await this.db.execute({
+      sql: 'SELECT id, user_id, title, created_at, updated_at FROM threads WHERE id = ?',
+      args: [id],
+    });
 
-    if (!row) return null;
+    if (res.rows.length === 0) return null;
+    const r: any = res.rows[0];
     return {
-      id: row.id,
-      userId: row.user_id,
-      title: row.title,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: String(r.id),
+      userId: String(r.user_id),
+      title: String(r.title),
+      createdAt: Number(r.created_at),
+      updatedAt: Number(r.updated_at),
     };
   }
 
-  delete(id: string): boolean {
-    this.db.prepare('DELETE FROM messages WHERE thread_id = ?').run(id);
-    this.db.prepare('DELETE FROM claims WHERE thread_id = ?').run(id);
-    this.db.prepare('DELETE FROM context_objects WHERE thread_id = ?').run(id);
-    const res = this.db.prepare('DELETE FROM threads WHERE id = ?').run(id);
-    return res.changes > 0;
+  async delete(id: string): Promise<boolean> {
+    await this.db.batch([
+      { sql: 'DELETE FROM messages WHERE thread_id = ?', args: [id] },
+      { sql: 'DELETE FROM claims WHERE thread_id = ?', args: [id] },
+      { sql: 'DELETE FROM context_objects WHERE thread_id = ?', args: [id] },
+      { sql: 'DELETE FROM threads WHERE id = ?', args: [id] },
+    ], 'write');
+    return true;
   }
 }
 
 export class TurnTraceRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Client) {}
 
-  save(turnId: string, userId: string, traceJson: Record<string, unknown>): void {
+  async save(turnId: string, userId: string, traceJson: Record<string, unknown>): Promise<void> {
     const now = Date.now();
-    this.db
-      .prepare('INSERT OR REPLACE INTO turn_traces (turn_id, user_id, json, created_at) VALUES (?, ?, ?, ?)')
-      .run(turnId, userId, JSON.stringify(traceJson), now);
+    await this.db.execute({
+      sql: 'INSERT OR REPLACE INTO turn_traces (turn_id, user_id, json, created_at) VALUES (?, ?, ?, ?)',
+      args: [turnId, userId, JSON.stringify(traceJson), now],
+    });
   }
 
-  getById(turnId: string): StoredTurnTrace | null {
-    const row = this.db
-      .prepare('SELECT turn_id, user_id, json, created_at FROM turn_traces WHERE turn_id = ?')
-      .get(turnId) as { turn_id: string; user_id: string; json: string; created_at: number } | undefined;
+  async getById(turnId: string): Promise<StoredTurnTrace | null> {
+    const res = await this.db.execute({
+      sql: 'SELECT turn_id, user_id, json, created_at FROM turn_traces WHERE turn_id = ?',
+      args: [turnId],
+    });
 
-    if (!row) return null;
+    if (res.rows.length === 0) return null;
+    const r: any = res.rows[0];
     return {
-      turnId: row.turn_id,
-      userId: row.user_id,
-      json: JSON.parse(row.json),
-      createdAt: row.created_at,
+      turnId: String(r.turn_id),
+      userId: String(r.user_id),
+      json: JSON.parse(String(r.json)),
+      createdAt: Number(r.created_at),
     };
   }
 }
 
 export class MessageRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Client) {}
 
-  insert(msg: Omit<StoredMessage, 'contentHash' | 'hourBucket'>): StoredMessage {
+  async insert(msg: Omit<StoredMessage, 'contentHash' | 'hourBucket'>): Promise<StoredMessage> {
     const contentHash = computeContentHash(msg.content);
     const hourBucket = computeHourBucket(msg.createdAt);
 
@@ -196,80 +188,64 @@ export class MessageRepository {
       hourBucket,
     };
 
-    const stmt = this.db.prepare(`
-      INSERT INTO messages (
-        id, thread_id, user_id, role, content, content_hash,
-        created_at, hour_bucket, embedding_status, meta
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      fullMsg.id,
-      fullMsg.threadId,
-      fullMsg.userId,
-      fullMsg.role,
-      fullMsg.content,
-      fullMsg.contentHash,
-      fullMsg.createdAt,
-      fullMsg.hourBucket,
-      fullMsg.embeddingStatus,
-      fullMsg.meta ? JSON.stringify(fullMsg.meta) : null
-    );
-
-    // Keep FTS updated
-    const ftsStmt = this.db.prepare(`
-      INSERT INTO messages_fts (rowid, content)
-      SELECT rowid, content FROM messages WHERE id = ?
-    `);
-    ftsStmt.run(fullMsg.id);
+    await this.db.batch([
+      {
+        sql: `INSERT INTO messages (
+          id, thread_id, user_id, role, content, content_hash,
+          created_at, hour_bucket, embedding_status, meta
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          fullMsg.id,
+          fullMsg.threadId,
+          fullMsg.userId,
+          fullMsg.role,
+          fullMsg.content,
+          fullMsg.contentHash,
+          fullMsg.createdAt,
+          fullMsg.hourBucket,
+          fullMsg.embeddingStatus,
+          fullMsg.meta ? JSON.stringify(fullMsg.meta) : null,
+        ],
+      },
+      {
+        sql: `INSERT INTO messages_fts (rowid, content) SELECT rowid, content FROM messages WHERE id = ?`,
+        args: [fullMsg.id],
+      },
+    ], 'write');
 
     return fullMsg;
   }
 
-  getByTimeWindow(userId: string, startMs: number, endMs: number): StoredMessage[] {
+  async getByTimeWindow(userId: string, startMs: number, endMs: number): Promise<StoredMessage[]> {
     const startBucket = computeHourBucket(startMs);
     const endBucket = computeHourBucket(endMs);
 
-    // Step 1: Bucket-pruned scan
-    // Step 2: Exact timestamp filter
-    const stmt = this.db.prepare(`
-      SELECT id, thread_id, user_id, role, content, content_hash,
-             created_at, hour_bucket, embedding_status, meta
-      FROM messages
-      WHERE user_id = ?
-        AND hour_bucket >= ? AND hour_bucket <= ?
-        AND created_at >= ? AND created_at <= ?
-      ORDER BY created_at ASC
-    `);
+    const res = await this.db.execute({
+      sql: `SELECT id, thread_id, user_id, role, content, content_hash,
+                   created_at, hour_bucket, embedding_status, meta
+            FROM messages
+            WHERE user_id = ?
+              AND hour_bucket >= ? AND hour_bucket <= ?
+              AND created_at >= ? AND created_at <= ?
+            ORDER BY created_at ASC`,
+      args: [userId, startBucket, endBucket, startMs, endMs],
+    });
 
-    const rows = stmt.all(userId, startBucket, endBucket, startMs, endMs) as Array<{
-      id: string;
-      thread_id: string;
-      user_id: string;
-      role: 'user' | 'assistant';
-      content: string;
-      content_hash: string;
-      created_at: number;
-      hour_bucket: number;
-      embedding_status: 'pending' | 'done' | 'failed';
-      meta: string | null;
-    }>;
-
-    return rows.map((r) => ({
-      id: r.id,
-      threadId: r.thread_id,
-      userId: r.user_id,
-      role: r.role,
-      content: r.content,
-      contentHash: r.content_hash,
-      createdAt: r.created_at,
-      hourBucket: r.hour_bucket,
-      embeddingStatus: r.embedding_status,
-      meta: r.meta ? JSON.parse(r.meta) : undefined,
+    return res.rows.map((r: any) => ({
+      id: String(r.id),
+      threadId: String(r.thread_id),
+      userId: String(r.user_id),
+      role: r.role as 'user' | 'assistant',
+      content: String(r.content),
+      contentHash: String(r.content_hash),
+      createdAt: Number(r.created_at),
+      hourBucket: Number(r.hour_bucket),
+      embeddingStatus: r.embedding_status as 'pending' | 'done' | 'failed',
+      meta: r.meta ? JSON.parse(String(r.meta)) : undefined,
     }));
   }
 
-  searchFts(userId: string, query: string, limit = 10): StoredMessage[] {
+  async searchFts(userId: string, query: string, limit = 10): Promise<StoredMessage[]> {
     const sanitized = query
       .replace(/[^a-zA-Z0-9\s]/g, ' ')
       .trim()
@@ -280,95 +256,73 @@ export class MessageRepository {
 
     if (!sanitized) return [];
 
-    const stmt = this.db.prepare(`
-      SELECT m.id, m.thread_id, m.user_id, m.role, m.content, m.content_hash,
-             m.created_at, m.hour_bucket, m.embedding_status, m.meta
-      FROM messages m
-      JOIN messages_fts f ON m.rowid = f.rowid
-      WHERE m.user_id = ? AND messages_fts MATCH ?
-      ORDER BY bm25(messages_fts)
-      LIMIT ?
-    `);
-
     try {
-      const rows = stmt.all(userId, sanitized, limit) as Array<{
-        id: string;
-        thread_id: string;
-        user_id: string;
-        role: 'user' | 'assistant';
-        content: string;
-        content_hash: string;
-        created_at: number;
-        hour_bucket: number;
-        embedding_status: 'pending' | 'done' | 'failed';
-        meta: string | null;
-      }>;
+      const res = await this.db.execute({
+        sql: `SELECT m.id, m.thread_id, m.user_id, m.role, m.content, m.content_hash,
+                     m.created_at, m.hour_bucket, m.embedding_status, m.meta
+              FROM messages m
+              JOIN messages_fts f ON m.rowid = f.rowid
+              WHERE m.user_id = ? AND messages_fts MATCH ?
+              ORDER BY bm25(messages_fts)
+              LIMIT ?`,
+        args: [userId, sanitized, limit],
+      });
 
-      return rows.map((r) => ({
-        id: r.id,
-        threadId: r.thread_id,
-        userId: r.user_id,
-        role: r.role,
-        content: r.content,
-        contentHash: r.content_hash,
-        createdAt: r.created_at,
-        hourBucket: r.hour_bucket,
-        embeddingStatus: r.embedding_status,
-        meta: r.meta ? JSON.parse(r.meta) : undefined,
+      return res.rows.map((r: any) => ({
+        id: String(r.id),
+        threadId: String(r.thread_id),
+        userId: String(r.user_id),
+        role: r.role as 'user' | 'assistant',
+        content: String(r.content),
+        contentHash: String(r.content_hash),
+        createdAt: Number(r.created_at),
+        hourBucket: Number(r.hour_bucket),
+        embeddingStatus: r.embedding_status as 'pending' | 'done' | 'failed',
+        meta: r.meta ? JSON.parse(String(r.meta)) : undefined,
       }));
     } catch {
       return [];
     }
   }
 
-  getThreadMessages(threadId: string): StoredMessage[] {
-    const stmt = this.db.prepare(`
-      SELECT id, thread_id, user_id, role, content, content_hash,
-             created_at, hour_bucket, embedding_status, meta
-      FROM messages
-      WHERE thread_id = ?
-      ORDER BY created_at ASC
-    `);
+  async getThreadMessages(threadId: string): Promise<StoredMessage[]> {
+    const res = await this.db.execute({
+      sql: `SELECT id, thread_id, user_id, role, content, content_hash,
+                   created_at, hour_bucket, embedding_status, meta
+            FROM messages
+            WHERE thread_id = ?
+            ORDER BY created_at ASC`,
+      args: [threadId],
+    });
 
-    const rows = stmt.all(threadId) as Array<{
-      id: string;
-      thread_id: string;
-      user_id: string;
-      role: 'user' | 'assistant';
-      content: string;
-      content_hash: string;
-      created_at: number;
-      hour_bucket: number;
-      embedding_status: 'pending' | 'done' | 'failed';
-      meta: string | null;
-    }>;
-
-    return rows.map((r) => ({
-      id: r.id,
-      threadId: r.thread_id,
-      userId: r.user_id,
-      role: r.role,
-      content: r.content,
-      contentHash: r.content_hash,
-      createdAt: r.created_at,
-      hourBucket: r.hour_bucket,
-      embeddingStatus: r.embedding_status,
-      meta: r.meta ? JSON.parse(r.meta) : undefined,
+    return res.rows.map((r: any) => ({
+      id: String(r.id),
+      threadId: String(r.thread_id),
+      userId: String(r.user_id),
+      role: r.role as 'user' | 'assistant',
+      content: String(r.content),
+      contentHash: String(r.content_hash),
+      createdAt: Number(r.created_at),
+      hourBucket: Number(r.hour_bucket),
+      embeddingStatus: r.embedding_status as 'pending' | 'done' | 'failed',
+      meta: r.meta ? JSON.parse(String(r.meta)) : undefined,
     }));
   }
 
-  deleteThread(threadId: string): void {
-    this.db.prepare('DELETE FROM messages WHERE thread_id = ?').run(threadId);
-    this.db.prepare('DELETE FROM claims WHERE thread_id = ?').run(threadId);
-    this.db.prepare('DELETE FROM context_objects WHERE thread_id = ?').run(threadId);
-    this.db.prepare('DELETE FROM threads WHERE id = ?').run(threadId);
+  async deleteThread(threadId: string): Promise<void> {
+    await this.db.batch([
+      { sql: 'DELETE FROM messages WHERE thread_id = ?', args: [threadId] },
+      { sql: 'DELETE FROM claims WHERE thread_id = ?', args: [threadId] },
+      { sql: 'DELETE FROM context_objects WHERE thread_id = ?', args: [threadId] },
+      { sql: 'DELETE FROM threads WHERE id = ?', args: [threadId] },
+    ], 'write');
   }
 }
 
 export class ClaimRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Client) {}
 
-  insert(claim: Omit<StoredClaim, 'contentHash' | 'hourBucket'>): StoredClaim {
+  async insert(claim: Omit<StoredClaim, 'contentHash' | 'hourBucket'>): Promise<StoredClaim> {
     const contentHash = computeContentHash(`${claim.subject}:${claim.attribute}:${claim.value}`);
     const hourBucket = computeHourBucket(claim.createdAt);
 
@@ -377,14 +331,6 @@ export class ClaimRepository {
       contentHash,
       hourBucket,
     };
-
-    const stmt = this.db.prepare(`
-      INSERT INTO claims (
-        id, user_id, thread_id, turn_id, subject, attribute, value, unit,
-        as_of, volatility, status, supersedes, source_message_id, content_hash,
-        evidence_urls, created_at, hour_bucket, embedding_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
 
     const asOfMs =
       typeof fullClaim.asOf === 'number'
@@ -414,135 +360,97 @@ export class ClaimRepository {
       fullClaim.embeddingStatus,
     ];
 
-    for (let i = 0; i < vals.length; i++) {
-      const v = vals[i];
-      const type = typeof v;
-      if (v !== null && type !== 'number' && type !== 'string' && type !== 'bigint' && !Buffer.isBuffer(v)) {
-        throw new Error(`Claim insert parameter at index ${i} has invalid type ${type}: ${JSON.stringify(v)}`);
-      }
-    }
-
-    stmt.run(...vals);
+    await this.db.execute({
+      sql: `INSERT INTO claims (
+        id, user_id, thread_id, turn_id, subject, attribute, value, unit,
+        as_of, volatility, status, supersedes, source_message_id, content_hash,
+        evidence_urls, created_at, hour_bucket, embedding_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: vals,
+    });
 
     return fullClaim;
   }
 
-  getBySubject(userId: string, subject: string): StoredClaim[] {
-    const stmt = this.db.prepare(`
-      SELECT id, user_id, thread_id, turn_id, subject, attribute, value, unit,
-             as_of, volatility, status, supersedes, source_message_id, content_hash,
-             evidence_urls, created_at, hour_bucket, embedding_status
-      FROM claims
-      WHERE user_id = ? AND subject LIKE ? AND status = 'active'
-      ORDER BY as_of DESC
-    `);
+  async getBySubject(userId: string, subject: string): Promise<StoredClaim[]> {
+    const res = await this.db.execute({
+      sql: `SELECT id, user_id, thread_id, turn_id, subject, attribute, value, unit,
+                   as_of, volatility, status, supersedes, source_message_id, content_hash,
+                   evidence_urls, created_at, hour_bucket, embedding_status
+            FROM claims
+            WHERE user_id = ? AND subject LIKE ? AND status = 'active'
+            ORDER BY as_of DESC`,
+      args: [userId, `%${subject}%`],
+    });
 
-    const rows = stmt.all(userId, `%${subject}%`) as Array<{
-      id: string;
-      user_id: string;
-      thread_id: string;
-      turn_id: string;
-      subject: string;
-      attribute: string;
-      value: string;
-      unit: string | null;
-      as_of: number;
-      volatility: 'static' | 'slow' | 'volatile';
-      status: 'active' | 'superseded' | 'refuted';
-      supersedes: string | null;
-      source_message_id: string;
-      content_hash: string;
-      evidence_urls: string;
-      created_at: number;
-      hour_bucket: number;
-      embedding_status: 'pending' | 'done' | 'failed';
-    }>;
-
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      threadId: r.thread_id,
-      turnId: r.turn_id,
-      subject: r.subject,
-      attribute: r.attribute,
-      value: r.value,
-      unit: r.unit || undefined,
-      asOf: r.as_of,
-      volatility: r.volatility,
-      status: r.status,
-      supersedes: r.supersedes || undefined,
-      sourceMessageId: r.source_message_id,
-      contentHash: r.content_hash,
-      evidenceUrls: JSON.parse(r.evidence_urls || '[]'),
-      createdAt: r.created_at,
-      hourBucket: r.hour_bucket,
-      embeddingStatus: r.embedding_status,
+    return res.rows.map((r: any) => ({
+      id: String(r.id),
+      userId: String(r.user_id),
+      threadId: String(r.thread_id),
+      turnId: String(r.turn_id),
+      subject: String(r.subject),
+      attribute: String(r.attribute),
+      value: String(r.value),
+      unit: r.unit ? String(r.unit) : undefined,
+      asOf: Number(r.as_of),
+      volatility: r.volatility as 'static' | 'slow' | 'volatile',
+      status: r.status as 'active' | 'superseded' | 'refuted',
+      supersedes: r.supersedes ? String(r.supersedes) : undefined,
+      sourceMessageId: String(r.source_message_id),
+      contentHash: String(r.content_hash),
+      evidenceUrls: JSON.parse(String(r.evidence_urls || '[]')),
+      createdAt: Number(r.created_at),
+      hourBucket: Number(r.hour_bucket),
+      embeddingStatus: r.embedding_status as 'pending' | 'done' | 'failed',
     }));
   }
 
-  markSuperseded(id: string): void {
-    this.db.prepare("UPDATE claims SET status = 'superseded' WHERE id = ?").run(id);
+  async markSuperseded(id: string): Promise<void> {
+    await this.db.execute({
+      sql: "UPDATE claims SET status = 'superseded' WHERE id = ?",
+      args: [id],
+    });
   }
 
-  getVolatileClaims(olderThanMs: number, limit = 20): StoredClaim[] {
-    const stmt = this.db.prepare(`
-      SELECT id, user_id, thread_id, turn_id, subject, attribute, value, unit,
-             as_of, volatility, status, supersedes, source_message_id, content_hash,
-             evidence_urls, created_at, hour_bucket, embedding_status
-      FROM claims
-      WHERE status = 'active' AND volatility = 'volatile' AND as_of <= ?
-      ORDER BY as_of ASC
-      LIMIT ?
-    `);
+  async getVolatileClaims(olderThanMs: number, limit = 20): Promise<StoredClaim[]> {
+    const res = await this.db.execute({
+      sql: `SELECT id, user_id, thread_id, turn_id, subject, attribute, value, unit,
+                   as_of, volatility, status, supersedes, source_message_id, content_hash,
+                   evidence_urls, created_at, hour_bucket, embedding_status
+            FROM claims
+            WHERE status = 'active' AND volatility = 'volatile' AND as_of <= ?
+            ORDER BY as_of ASC
+            LIMIT ?`,
+      args: [olderThanMs, limit],
+    });
 
-    const rows = stmt.all(olderThanMs, limit) as Array<{
-      id: string;
-      user_id: string;
-      thread_id: string;
-      turn_id: string;
-      subject: string;
-      attribute: string;
-      value: string;
-      unit: string | null;
-      as_of: number;
-      volatility: 'static' | 'slow' | 'volatile';
-      status: 'active' | 'superseded' | 'refuted';
-      supersedes: string | null;
-      source_message_id: string;
-      content_hash: string;
-      evidence_urls: string;
-      created_at: number;
-      hour_bucket: number;
-      embedding_status: 'pending' | 'done' | 'failed';
-    }>;
-
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      threadId: r.thread_id,
-      turnId: r.turn_id,
-      subject: r.subject,
-      attribute: r.attribute,
-      value: r.value,
-      unit: r.unit || undefined,
-      asOf: r.as_of,
-      volatility: r.volatility,
-      status: r.status,
-      supersedes: r.supersedes || undefined,
-      sourceMessageId: r.source_message_id,
-      contentHash: r.content_hash,
-      evidenceUrls: JSON.parse(r.evidence_urls || '[]'),
-      createdAt: r.created_at,
-      hourBucket: r.hour_bucket,
-      embeddingStatus: r.embedding_status,
+    return res.rows.map((r: any) => ({
+      id: String(r.id),
+      userId: String(r.user_id),
+      threadId: String(r.thread_id),
+      turnId: String(r.turn_id),
+      subject: String(r.subject),
+      attribute: String(r.attribute),
+      value: String(r.value),
+      unit: r.unit ? String(r.unit) : undefined,
+      asOf: Number(r.as_of),
+      volatility: r.volatility as 'static' | 'slow' | 'volatile',
+      status: r.status as 'active' | 'superseded' | 'refuted',
+      supersedes: r.supersedes ? String(r.supersedes) : undefined,
+      sourceMessageId: String(r.source_message_id),
+      contentHash: String(r.content_hash),
+      evidenceUrls: JSON.parse(String(r.evidence_urls || '[]')),
+      createdAt: Number(r.created_at),
+      hourBucket: Number(r.hour_bucket),
+      embeddingStatus: r.embedding_status as 'pending' | 'done' | 'failed',
     }));
   }
 }
 
 export class ContextObjectRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: Client) {}
 
-  insert(obj: Omit<StoredContextObject, 'contentHash' | 'hourBucket'>): StoredContextObject {
+  async insert(obj: Omit<StoredContextObject, 'contentHash' | 'hourBucket'>): Promise<StoredContextObject> {
     const contentHash = computeContentHash(`${obj.type}:${obj.label}:${obj.members.join(',')}`);
     const hourBucket = computeHourBucket(obj.createdAt);
 
@@ -552,68 +460,53 @@ export class ContextObjectRepository {
       hourBucket,
     };
 
-    const stmt = this.db.prepare(`
-      INSERT INTO context_objects (
+    await this.db.execute({
+      sql: `INSERT INTO context_objects (
         id, user_id, thread_id, type, label, members, attributes,
         created_at, hour_bucket, source_message_id, content_hash, embedding_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      fullObj.id,
-      fullObj.userId,
-      fullObj.threadId,
-      fullObj.type,
-      fullObj.label,
-      JSON.stringify(fullObj.members),
-      fullObj.attributes ? JSON.stringify(fullObj.attributes) : null,
-      fullObj.createdAt,
-      fullObj.hourBucket,
-      fullObj.sourceMessageId,
-      fullObj.contentHash,
-      fullObj.embeddingStatus
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        fullObj.id,
+        fullObj.userId,
+        fullObj.threadId,
+        fullObj.type,
+        fullObj.label,
+        JSON.stringify(fullObj.members),
+        fullObj.attributes ? JSON.stringify(fullObj.attributes) : null,
+        fullObj.createdAt,
+        fullObj.hourBucket,
+        fullObj.sourceMessageId,
+        fullObj.contentHash,
+        fullObj.embeddingStatus,
+      ],
+    });
 
     return fullObj;
   }
 
-  getByType(userId: string, type: string): StoredContextObject[] {
-    const stmt = this.db.prepare(`
-      SELECT id, user_id, thread_id, type, label, members, attributes,
-             created_at, hour_bucket, source_message_id, content_hash, embedding_status
-      FROM context_objects
-      WHERE user_id = ? AND type = ?
-      ORDER BY created_at DESC
-    `);
+  async getByType(userId: string, type: string): Promise<StoredContextObject[]> {
+    const res = await this.db.execute({
+      sql: `SELECT id, user_id, thread_id, type, label, members, attributes,
+                   created_at, hour_bucket, source_message_id, content_hash, embedding_status
+            FROM context_objects
+            WHERE user_id = ? AND type = ?
+            ORDER BY created_at DESC`,
+      args: [userId, type],
+    });
 
-    const rows = stmt.all(userId, type) as Array<{
-      id: string;
-      user_id: string;
-      thread_id: string;
-      type: string;
-      label: string;
-      members: string;
-      attributes: string | null;
-      created_at: number;
-      hour_bucket: number;
-      source_message_id: string;
-      content_hash: string;
-      embedding_status: 'pending' | 'done' | 'failed';
-    }>;
-
-    return rows.map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      threadId: r.thread_id,
-      type: r.type,
-      label: r.label,
-      members: JSON.parse(r.members || '[]'),
-      attributes: r.attributes ? JSON.parse(r.attributes) : undefined,
-      createdAt: r.created_at,
-      hourBucket: r.hour_bucket,
-      sourceMessageId: r.source_message_id,
-      contentHash: r.content_hash,
-      embeddingStatus: r.embedding_status,
+    return res.rows.map((r: any) => ({
+      id: String(r.id),
+      userId: String(r.user_id),
+      threadId: String(r.thread_id),
+      type: String(r.type),
+      label: String(r.label),
+      members: JSON.parse(String(r.members || '[]')),
+      attributes: r.attributes ? JSON.parse(String(r.attributes)) : undefined,
+      createdAt: Number(r.created_at),
+      hourBucket: Number(r.hour_bucket),
+      sourceMessageId: String(r.source_message_id),
+      contentHash: String(r.content_hash),
+      embeddingStatus: r.embedding_status as 'pending' | 'done' | 'failed',
     }));
   }
 }
