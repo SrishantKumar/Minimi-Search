@@ -13,6 +13,11 @@ export function createSSEWriter(request: FastifyRequest, reply: FastifyReply): S
   const abortController = new AbortController();
   let isClosed = false;
 
+  // Disable Nagle buffering so tokens and events stream immediately with zero TCP delay
+  if (typeof request.raw.socket?.setNoDelay === 'function') {
+    request.raw.socket.setNoDelay(true);
+  }
+
   // Merge any Fastify-staged headers (such as Set-Cookie)
   const pendingHeaders = typeof reply.getHeaders === 'function' ? reply.getHeaders() : {};
   const headers: Record<string, any> = {
@@ -29,6 +34,9 @@ export function createSSEWriter(request: FastifyRequest, reply: FastifyReply): S
   }
 
   reply.raw.writeHead(200, headers);
+  if (typeof reply.raw.flushHeaders === 'function') {
+    reply.raw.flushHeaders();
+  }
 
   const onClientDisconnect = () => {
     if (!isClosed && !reply.raw.writableEnded) {

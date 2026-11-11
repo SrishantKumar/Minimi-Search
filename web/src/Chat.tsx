@@ -36,57 +36,40 @@ function preprocessMarkdown(content: string): string {
   // 3. Convert unicode bullets (•, ●, ▪) at the beginning of lines to standard markdown dashes
   text = text.replace(/^[ \t]*[•●▪]\s+/gm, '- ');
 
-  // 4. Clean trailing | | on table lines
-  text = text.replace(/\|\s*\|\s*$/gm, '|');
+  // 4. Gemini table row collapse: convert inline row separators '||' into proper newline-delimited table rows
+  text = text.replace(/\|\|\s*/g, '|\n| ');
 
-  // 5. Replace inline row breaks '| |' with line break
-  text = text.replace(/\|\s*\|\s*/g, '|\n| ');
+  // 5. Clean up table rows: merge split single-cell header lines and ensure proper pipe closing
+  const rawLines = text.split('\n');
+  const mergedLines: string[] = [];
 
-  // 6. Fix table rows where first column was split across lines or multi-line cell text
-  const lines = text.split('\n');
-  const result: string[] = [];
-  let inTable = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].trim();
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i].trim();
     if (!line) {
-      inTable = false;
-      result.push('');
+      mergedLines.push('');
       continue;
     }
 
-    if (line.startsWith('|')) {
-      inTable = true;
-      line = line.replace(/\|\s*\|\s*$/, '|');
-      if (!line.endsWith('|')) {
-        // Line starts with | but doesn't end with | (e.g. '| Claude Code (Anthropic)')
-        if (i + 1 < lines.length && lines[i + 1].trim().startsWith('|')) {
-          let nextLine = lines[i + 1].trim();
-          nextLine = nextLine.replace(/\|\s*\|\s*$/, '|');
-          const merged = line + ' ' + nextLine;
-          i++;
-          result.push(merged.endsWith('|') ? merged : merged + ' |');
-        } else {
-          result.push(line + ' |');
-        }
-      } else {
-        result.push(line);
+    // Check if this line is a lone cell/column intended as the first column of the next row
+    // e.g. '| Claude Code (Anthropic)' followed by '| Capacity / Limits | ...'
+    if (line.startsWith('|') && line.split('|').length === 2) {
+      if (i + 1 < rawLines.length && rawLines[i + 1].trim().startsWith('|')) {
+        const nextLine = rawLines[i + 1].trim();
+        mergedLines.push(line + ' ' + nextLine);
+        i++;
+        continue;
       }
-    } else if (inTable) {
-      // Continuation of a table cell across newlines
-      const prev = result.pop() || '';
-      if (prev.endsWith('|')) {
-        const withoutPipe = prev.slice(0, -1).trimEnd();
-        result.push(withoutPipe + ' ' + line + ' |');
-      } else {
-        result.push(prev + ' ' + line);
-      }
+    }
+
+    // Ensure line starting with '|' has a closing pipe '|'
+    if (line.startsWith('|') && !line.endsWith('|')) {
+      mergedLines.push(line + ' |');
     } else {
-      result.push(line);
+      mergedLines.push(line);
     }
   }
 
-  let processed = result.join('\n');
+  let processed = mergedLines.join('\n');
   // Ensure blank line before table start if not already there
   processed = processed.replace(/([^\n|])\n(\|[^\n]+\|)/g, '$1\n\n$2');
   // Ensure blank line after table end if not already there

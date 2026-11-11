@@ -147,6 +147,7 @@ export class TurnOrchestrator {
           model,
           system: systemPrompt,
           messages: [{ role: 'user', content: input.message }],
+          maxTokens: 4096,
           abortSignal: sse.signal,
         });
 
@@ -274,6 +275,7 @@ export class TurnOrchestrator {
         model,
         system: systemPrompt,
         messages: [{ role: 'user', content: input.message }],
+        maxTokens: 4096,
         abortSignal: sse.signal,
       });
 

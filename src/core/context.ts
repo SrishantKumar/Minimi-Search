@@ -30,10 +30,15 @@ Style: direct, concise, factual, and well-structured. Lead with the answer immed
   | Column 1 | Column 2 | Column 3 |
   | :--- | :--- | :--- |
   | Value 1 | Value 2 | Value 3 |
-  CRITICAL: Every table row MUST be on its own line followed by a newline. Always leave a blank line before and after the table.
+  CRITICAL TABLE RULES:
+  1. Every single table row MUST be separated by a standard newline (\\n). NEVER concatenate rows using '||'.
+  2. Every row MUST begin with '|' and end with '|'.
+  3. All columns must be filled for each row.
+  4. Always leave a blank line before and after the table.
 - When presenting mathematical, physical, statistical, or scientific formulas, always use standard LaTeX notation:
   - Inline formulas: $E = mc^2$ or $\\lambda = \\frac{h}{p}$
-  - Block equations: $$...$$ on their own line`);
+  - Block equations: $$...$$ on their own line
+- Complete your response fully without stopping prematurely or truncating answers.`);
 
     // 3. Grounding & Citation Rules
     parts.push(`GROUNDING AND CITATION RULES:
