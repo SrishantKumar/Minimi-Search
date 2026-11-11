@@ -2,7 +2,7 @@ import { streamText } from 'ai';
 import { ulid } from 'ulidx';
 import type { Clock } from '../time/clock.js';
 import type { TemporalResolver } from '../time/resolver.js';
-import type { RecallEngine } from '../memory/recall.js';
+import type { RecallEngine, RecallBundle } from '../memory/recall.js';
 import type { SearchGateway } from '../search/gateway.js';
 import type { LLMGateway } from '../llm/gateway.js';
 import type { MessageRepository, ContextObjectRepository } from '../memory/store/repository.js';

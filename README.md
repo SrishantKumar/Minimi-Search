@@ -1,7 +1,7 @@
 # Minimi Search: Time-Aware Web-Search Agent (v2)
 
 <p align="center">
-  <img src="web/public/minimi-logo.png" alt="Minimi Logo" width="240" />
+  <img src="assets/Minimi-Search.gif" alt="Minimi Search Demo" width="100%" />
 </p>
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5_Strict-blue.svg)](https://www.typescriptlang.org/)
