@@ -3,6 +3,8 @@
 ## What It Is
 **Minimi Search** is a time-aware web-search chat agent built on the design and memory philosophy of [Minimi](https://www.projectminimi.com/). Its core differentiator is that it understands *time*, *its own past answers*, and *what changed since*. The agent strictly complies with the **single model-callable tool rule (`web_search`)**: all temporal resolution, cross-session memory retrieval, and claim verification are deterministic architectural infrastructure executing *around* the model rather than fragile tool choices the model must decide to invoke.
 
+**Live Deployed Application:** [https://minimi-search.vercel.app/](https://minimi-search.vercel.app/)
+
 ---
 
 ## How It Works
@@ -17,7 +19,7 @@ user message
 [S1 Temporal Resolve]    Deterministic parsing (chrono + luxon + ambiguity rules) ──► TemporalFrame (0ms LLM)
     │
     ├──────────────────► [S2 Recall Engine] (Parallel with S3)
-    │                     Indexed hour-bucket window + SQLite FTS5 + VectorIndex (sqlite-vec / Cosine fallback) ──► RecallBundle
+    │                     Indexed hour-bucket window + Cloud SQLite FTS5 (Turso / @libsql) + VectorIndex (Cosine fallback) ──► RecallBundle
     ▼
 [S3 Route + Plan]        Fast-path heuristic & router ──► Plan{intent, needsRecall, needsSearch}
     │
@@ -34,7 +36,7 @@ user message
 [S7 Post-Gate]           Numeric grounding check flags ungrounded prices/metrics via correction events
     │
     ▼
-[S8 Persist & Async]     Persist assistant turn; enqueue claim extraction & embedding jobs to WorkerPool
+[S8 Persist & Async]     Persist assistant turn to Cloud SQLite; enqueue claim extraction & embedding jobs
 ```
 
 ---
@@ -53,6 +55,8 @@ user message
    Small models/heuristics handle routing and planning; the main model handles grounded synthesis. For multi-entity comparisons ("5 CRM tools"), queries fan out in parallel, drastically reducing time-to-first-token.
 6. **Time-Travel Evaluation Harness**:
    An injectable `Clock` (`FixedClock`) and mutable search fixtures allow replaying historical scenarios ("user asked on 3 Nov, today is 10 Nov") deterministically without paying live API costs.
+7. **Cloud SQLite Architecture (Turso / @libsql/client) for Serverless Deployment**:
+   Originally prototyped with local disk-locked C++ bindings (`better-sqlite3`), we transitioned the entire storage layer to serverless **Cloud SQLite powered by Turso (`@libsql/client`)**. This architectural evolution decouples storage from local machine disk, allowing true stateless serverless execution on **Vercel** ([https://minimi-search.vercel.app/](https://minimi-search.vercel.app/)), zero native compilation dependencies across Node.js versions, distributed edge replication, and instantaneous sub-5ms in-memory (`:memory:`) execution for unit tests and local development.
 
 ---
 
@@ -60,10 +64,11 @@ user message
 
 | Approach | Verdict | Reason |
 | :--- | :--- | :--- |
+| **better-sqlite3 (Native C++)** | Rejected | Incompatible with stateless serverless execution (Vercel Functions / AWS Lambda) where disk writes are ephemeral and native C++ compilation frequently breaks across Node 22+ environments. Replaced with `@libsql/client` (Turso Cloud SQLite) for resilient HTTP-based SQLite persistence. |
 | **LangChain / LangGraph** | Rejected | Heavy runtime overhead, opaque control flow, and unnecessary graph abstraction for a linear pipeline. |
 | **Model-Native Search Only** | Rejected | Opaque, vendor lock-in, impossible to enforce date bounds or ranking heuristics. |
 | **Extra Tools (e.g. `recall`, `fetch_page`)** | Rejected | Violates the single-tool constraint; increases model failure modes. |
-| **External Vector DB (Pinecone, Chroma)** | Rejected | Unnecessary infrastructure overhead; `sqlite-vec` with brute-force cosine fallback keeps data local in one encrypted/WAL file. |
+| **External Heavy Vector DB (Pinecone, Chroma)** | Rejected | Unnecessary infrastructure overhead; embedded VectorIndex with cosine fallback keeps vector embeddings co-located in the same SQLite table. |
 | **Prompt-Only Temporal Math** | Rejected | LLMs frequently err on weekday offsets and leap/DST boundaries. |
 
 ---

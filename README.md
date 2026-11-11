@@ -4,11 +4,16 @@
   <img src="assets/Minimi-Search.gif" alt="Minimi Search Demo" width="100%" />
 </p>
 
+[![Deployed on Vercel](https://img.shields.io/badge/Deployment-Live_on_Vercel-black?logo=vercel&logoColor=white)](https://minimi-search.vercel.app/)
+[![Database](https://img.shields.io/badge/Database-Turso_Cloud_SQLite-00E599?logo=turso&logoColor=white)](https://turso.tech/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5_Strict-blue.svg)](https://www.typescriptlang.org/)
 [![Fastify](https://img.shields.io/badge/Fastify-4.28-black.svg)](https://fastify.dev/)
 [![React](https://img.shields.io/badge/React-18.3-61dafb.svg)](https://react.dev/)
 [![Tests](https://img.shields.io/badge/Tests-126_Passing-brightgreen.svg)](https://vitest.dev/)
 [![Evals](https://img.shields.io/badge/Eval_Score-100%25-success.svg)](evals/reports/latest.md)
+
+> 🚀 **Live Production Application:** [https://minimi-search.vercel.app/](https://minimi-search.vercel.app/)  
+> 🐾 **Design Philosophy & Companion Project:** Inspired by [Minimi (projectminimi.com)](https://www.projectminimi.com/)
 
 **Minimi Search** is a time-aware web-search chat agent built on the design and memory philosophy of [Minimi](https://www.projectminimi.com/). Its core differentiator is that it understands **time**, **its own past answers**, and **what has changed since**.
 
@@ -43,7 +48,7 @@ flowchart TD
         Clock["Clock Service (SystemClock / FixedClock)"]
         Resolver["Temporal Resolver (Chrono + Luxon)"]
         RecallEngine["Recall Engine (FTS5 + Vectors + RRF)"]
-        SQLite[("SQLite WAL Store (minimi.db)")]
+        SQLite[("Turso Cloud SQLite (@libsql) / Local WAL")]
         VectorIndex["VectorIndex (sqlite-vec / Cosine fallback)"]
     end
 
@@ -370,9 +375,18 @@ npm run typecheck
 npm run build
 ```
 
-### Vercel Deployment (Serverless + Turso)
-Minimi Search is fully adapted for serverless deployment on [Vercel](https://vercel.com/) backed by [Turso Cloud SQLite](https://turso.tech/):
-1. Create a Turso database:
+### Vercel Deployment & Live App (Serverless + Cloud SQLite)
+Minimi Search is live in production on [Vercel](https://vercel.com/) backed by [Turso Cloud SQLite](https://turso.tech/):
+- **Live URL:** [https://minimi-search.vercel.app/](https://minimi-search.vercel.app/)
+
+#### Architecture Evolution: Local SQLite to Cloud SQLite
+To achieve seamless serverless deployment on Vercel without ephemeral disk data loss or C++ native compilation hurdles (`better-sqlite3`), the persistence layer was modernized to **Turso (`@libsql/client`)**:
+- **Serverless Over HTTP/WebSocket**: Communicates with Turso over low-latency HTTP, ensuring multi-turn memory persists across stateless serverless invocations.
+- **Dual-Mode Engine**: Retains zero-dependency local in-memory (`:memory:`) and local file execution for automated test suites (`vitest`) and offline development, automatically routing to Turso when `TURSO_DATABASE_URL` is configured.
+- **Serverless API Bridge**: `api/index.ts` adapts Fastify routes into Vercel Serverless Functions with a 60-second execution window and full SSE streaming support.
+
+#### Deploying Your Own Instance
+1. Create a Turso Cloud SQLite database:
    ```bash
    turso db create minimi-db
    turso db tokens create minimi-db
@@ -381,7 +395,7 @@ Minimi Search is fully adapted for serverless deployment on [Vercel](https://ver
    - `TURSO_DATABASE_URL`: `libsql://minimi-db-[username].turso.io`
    - `TURSO_AUTH_TOKEN`: Your Turso database token
    - `GOOGLE_GENERATIVE_AI_API_KEY` (or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`)
-   - `TAVILY_API_KEY`: For live search
+   - `TAVILY_API_KEY`: For live web research
 3. Deploy directly via Vercel CLI or GitHub push:
    ```bash
    vercel
