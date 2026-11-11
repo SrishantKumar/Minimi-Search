@@ -25,22 +25,74 @@ import rehypeKatex from 'rehype-katex';
 
 function preprocessMarkdown(content: string): string {
   if (!content) return '';
-  let text = content;
+  let text = content.replace(/\r\n/g, '\n');
 
-  // 1. Convert unicode bullets (•, ●, ▪) at the beginning of lines to standard markdown dashes
+  // 1. Protect currency signs ($7/month, $20, $125.50) from KaTeX inline math corruption
+  text = text.replace(/\\?\$(\d+(?:\.\d+)?)/g, '&#36;$1');
+
+  // 2. Convert raw all-caps section titles (e.g. 'AI DEVELOPER TOOL PRICING', 'KEY TRENDS') into markdown headers
+  text = text.replace(/^[ \t]*([A-Z][A-Z0-9\s()&/,\-–—]{3,80}[A-Z0-9)])[ \t]*$/gm, '### $1');
+
+  // 3. Convert unicode bullets (•, ●, ▪) at the beginning of lines to standard markdown dashes
   text = text.replace(/^[ \t]*[•●▪]\s+/gm, '- ');
 
-  // 2. Ensure blank line before tables when immediately preceded by text on same line or without blank line
-  text = text.replace(/([^\n|])\s*\n(\|[^\n]+\|)/g, '$1\n\n$2');
-  text = text.replace(/([^\n|])\s+(\|[^\n]+\|)/g, '$1\n\n$2');
+  // 4. Clean trailing | | on table lines
+  text = text.replace(/\|\s*\|\s*$/gm, '|');
 
-  // 3. Fix collapsed table rows where model placed | | on same line instead of newline
+  // 5. Replace inline row breaks '| |' with line break
   text = text.replace(/\|\s*\|\s*/g, '|\n| ');
 
-  // 4. Ensure blank line after a table ends before subsequent text
-  text = text.replace(/(\|[^\n]+\|)\n([^\n|#\s*-])/g, '$1\n\n$2');
+  // 6. Fix table rows where first column was split across lines or multi-line cell text
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let inTable = false;
 
-  return text;
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+    if (!line) {
+      inTable = false;
+      result.push('');
+      continue;
+    }
+
+    if (line.startsWith('|')) {
+      inTable = true;
+      line = line.replace(/\|\s*\|\s*$/, '|');
+      if (!line.endsWith('|')) {
+        // Line starts with | but doesn't end with | (e.g. '| Claude Code (Anthropic)')
+        if (i + 1 < lines.length && lines[i + 1].trim().startsWith('|')) {
+          let nextLine = lines[i + 1].trim();
+          nextLine = nextLine.replace(/\|\s*\|\s*$/, '|');
+          const merged = line + ' ' + nextLine;
+          i++;
+          result.push(merged.endsWith('|') ? merged : merged + ' |');
+        } else {
+          result.push(line + ' |');
+        }
+      } else {
+        result.push(line);
+      }
+    } else if (inTable) {
+      // Continuation of a table cell across newlines
+      const prev = result.pop() || '';
+      if (prev.endsWith('|')) {
+        const withoutPipe = prev.slice(0, -1).trimEnd();
+        result.push(withoutPipe + ' ' + line + ' |');
+      } else {
+        result.push(prev + ' ' + line);
+      }
+    } else {
+      result.push(line);
+    }
+  }
+
+  let processed = result.join('\n');
+  // Ensure blank line before table start if not already there
+  processed = processed.replace(/([^\n|])\n(\|[^\n]+\|)/g, '$1\n\n$2');
+  // Ensure blank line after table end if not already there
+  processed = processed.replace(/(\|[^\n]+\|)\n([^\n|#\s*-])/g, '$1\n\n$2');
+
+  return processed;
 }
 
 interface ChatProps {
