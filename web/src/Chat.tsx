@@ -19,8 +19,29 @@ import { useChatStream } from './useChatStream.js';
 import { StatusLine } from './StatusLine.js';
 import { SourceChips } from './SourceChips.js';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+
+function preprocessMarkdown(content: string): string {
+  if (!content) return '';
+  let text = content;
+
+  // 1. Convert unicode bullets (•, ●, ▪) at the beginning of lines to standard markdown dashes
+  text = text.replace(/^[ \t]*[•●▪]\s+/gm, '- ');
+
+  // 2. Ensure blank line before tables when immediately preceded by text on same line or without blank line
+  text = text.replace(/([^\n|])\s*\n(\|[^\n]+\|)/g, '$1\n\n$2');
+  text = text.replace(/([^\n|])\s+(\|[^\n]+\|)/g, '$1\n\n$2');
+
+  // 3. Fix collapsed table rows where model placed | | on same line instead of newline
+  text = text.replace(/\|\s*\|\s*/g, '|\n| ');
+
+  // 4. Ensure blank line after a table ends before subsequent text
+  text = text.replace(/(\|[^\n]+\|)\n([^\n|#\s*-])/g, '$1\n\n$2');
+
+  return text;
+}
 
 interface ChatProps {
   sidebarOpen: boolean;
@@ -272,16 +293,16 @@ export const Chat: React.FC<ChatProps> = ({ sidebarOpen, setSidebarOpen, onOpenS
                         <div className="text-sm text-zinc-200 leading-relaxed space-y-2">
                           {msg.content ? (
                             <ReactMarkdown
-                              remarkPlugins={[remarkMath]}
+                              remarkPlugins={[remarkGfm, remarkMath]}
                               rehypePlugins={[rehypeKatex]}
                               components={{
-                                p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-relaxed text-zinc-200">{children}</p>,
-                                h1: ({ children }) => <h1 className="text-base font-bold text-zinc-100 mt-4 mb-2 border-b border-zinc-800 pb-1">{children}</h1>,
-                                h2: ({ children }) => <h2 className="text-sm font-semibold text-zinc-100 mt-3.5 mb-1.5">{children}</h2>,
-                                h3: ({ children }) => <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mt-3 mb-1">{children}</h3>,
-                                ul: ({ children }) => <ul className="list-disc list-outside pl-4 space-y-1 mb-2.5 last:mb-0 text-zinc-200">{children}</ul>,
-                                ol: ({ children }) => <ol className="list-decimal list-outside pl-4 space-y-1 mb-2.5 last:mb-0 text-zinc-200">{children}</ol>,
-                                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                                p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-zinc-200">{children}</p>,
+                                h1: ({ children }) => <h1 className="text-base font-semibold text-zinc-100 mt-5 mb-2.5 tracking-tight border-b border-zinc-800/80 pb-1.5">{children}</h1>,
+                                h2: ({ children }) => <h2 className="text-sm font-semibold text-zinc-100 mt-4 mb-2 tracking-tight">{children}</h2>,
+                                h3: ({ children }) => <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mt-3.5 mb-1.5">{children}</h3>,
+                                ul: ({ children }) => <ul className="list-disc list-outside pl-5 space-y-1.5 my-2.5 text-zinc-200">{children}</ul>,
+                                ol: ({ children }) => <ol className="list-decimal list-outside pl-5 space-y-1.5 my-2.5 text-zinc-200">{children}</ol>,
+                                li: ({ children }) => <li className="leading-relaxed pl-0.5">{children}</li>,
                                 strong: ({ children }) => <strong className="font-semibold text-zinc-100">{children}</strong>,
                                 blockquote: ({ children }) => (
                                   <blockquote className="border-l-2 border-zinc-700 pl-3 my-2 text-zinc-400 italic">
@@ -303,19 +324,28 @@ export const Chat: React.FC<ChatProps> = ({ sidebarOpen, setSidebarOpen, onOpenS
                                   );
                                 },
                                 table: ({ children }) => (
-                                  <div className="my-3 overflow-x-auto rounded-xl border border-zinc-800">
+                                  <div className="my-4 overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950/70 shadow-sm">
                                     <table className="min-w-full divide-y divide-zinc-800 text-xs text-left">
                                       {children}
                                     </table>
                                   </div>
                                 ),
+                                thead: ({ children }) => (
+                                  <thead className="bg-zinc-900/90 text-zinc-200 font-medium">{children}</thead>
+                                ),
+                                tbody: ({ children }) => (
+                                  <tbody className="divide-y divide-zinc-800/50 bg-transparent">{children}</tbody>
+                                ),
+                                tr: ({ children }) => (
+                                  <tr className="hover:bg-zinc-900/40 transition-colors">{children}</tr>
+                                ),
                                 th: ({ children }) => (
-                                  <th className="px-3 py-2 bg-zinc-900 font-semibold text-zinc-200">
+                                  <th className="px-3.5 py-2.5 font-semibold text-zinc-200 tracking-wide text-xs">
                                     {children}
                                   </th>
                                 ),
                                 td: ({ children }) => (
-                                  <td className="px-3 py-2 text-zinc-300 border-t border-zinc-800/60">
+                                  <td className="px-3.5 py-2.5 text-zinc-300 align-top leading-relaxed text-xs">
                                     {children}
                                   </td>
                                 ),
@@ -331,7 +361,7 @@ export const Chat: React.FC<ChatProps> = ({ sidebarOpen, setSidebarOpen, onOpenS
                                 ),
                               }}
                             >
-                              {msg.content}
+                              {preprocessMarkdown(msg.content)}
                             </ReactMarkdown>
                           ) : (
                             isStreaming && <span className="text-zinc-500 italic">Thinking...</span>

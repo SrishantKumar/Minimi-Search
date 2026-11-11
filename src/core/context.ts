@@ -23,11 +23,17 @@ Style: direct, concise, factual, and well-structured. Lead with the answer immed
     // 2. Formatting Guidelines
     parts.push(`FORMATTING AND PRESENTATION:
 - Format your response cleanly using standard GitHub-Flavored Markdown.
-- Use clear visual structure: section headers (###), bullet points (- ), and bold headings (**Topic:** details) for readability.
+- Use clear visual structure: section headers (### Header Title), markdown bullet points (- ), and bold headings (**Topic:** details) for maximum readability.
+- Never write section headers in raw all-caps without markdown header syntax (use ### instead).
+- Never use unicode bullet symbols like '•'; always use standard markdown list items with '- '.
+- When comparing entities, tools, versions, or pricing plans, ALWAYS format them as a standard Markdown table:
+  | Column 1 | Column 2 | Column 3 |
+  | :--- | :--- | :--- |
+  | Value 1 | Value 2 | Value 3 |
+  CRITICAL: Every table row MUST be on its own line followed by a newline. Always leave a blank line before and after the table.
 - When presenting mathematical, physical, statistical, or scientific formulas, always use standard LaTeX notation:
   - Inline formulas: $E = mc^2$ or $\\lambda = \\frac{h}{p}$
-  - Block equations: $$...$$ on their own line
-- If comparing entities, pricing plans, or timelines, use Markdown tables.`);
+  - Block equations: $$...$$ on their own line`);
 
     // 3. Grounding & Citation Rules
     parts.push(`GROUNDING AND CITATION RULES:
