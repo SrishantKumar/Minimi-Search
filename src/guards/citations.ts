@@ -13,9 +13,9 @@ export function filterValidCitations(
     return ''; // Strip hallucinated citation ID
   });
 
-  // Clean any resulting double spaces
+  // Clean any resulting double horizontal spaces only, preserving newlines and markdown structure
   return {
-    cleanText: cleanText.replace(/\s{2,}/g, ' '),
+    cleanText: cleanText.replace(/[ \t]{2,}/g, ' '),
     strippedIds,
   };
 }

@@ -30,16 +30,22 @@ function preprocessMarkdown(content: string): string {
   // 1. Protect currency signs ($7/month, $20, $125.50) from KaTeX inline math corruption
   text = text.replace(/\\?\$(\d+(?:\.\d+)?)/g, '&#36;$1');
 
-  // 2. Convert raw all-caps section titles (e.g. 'AI DEVELOPER TOOL PRICING', 'KEY TRENDS') into markdown headers
+  // 2. Ensure markdown headers (### or ##) are placed on their own lines with surrounding newlines
+  text = text.replace(/(?:^|\s+)(#{1,4}\s+[^\n#\-]+?)(?=\s+[-*•]|\s*#{1,4}|\n|$)/g, '\n\n$1\n\n');
+
+  // 3. Ensure bullet items concatenated onto previous text are split into proper markdown list items
+  text = text.replace(/([^\n])\s+[-*•●▪]\s+(\*\*[^*]+\*\*)/g, '$1\n- $2');
+
+  // 4. Convert raw all-caps section titles (e.g. 'AI DEVELOPER TOOL PRICING', 'KEY TRENDS') into markdown headers
   text = text.replace(/^[ \t]*([A-Z][A-Z0-9\s()&/,\-–—]{3,80}[A-Z0-9)])[ \t]*$/gm, '### $1');
 
-  // 3. Convert unicode bullets (•, ●, ▪) at the beginning of lines to standard markdown dashes
+  // 5. Convert unicode bullets (•, ●, ▪) at the beginning of lines to standard markdown dashes
   text = text.replace(/^[ \t]*[•●▪]\s+/gm, '- ');
 
-  // 4. Gemini table row collapse: convert inline row separators '||' into proper newline-delimited table rows
+  // 6. Gemini table row collapse: convert inline row separators '||' into proper newline-delimited table rows
   text = text.replace(/\|\|\s*/g, '|\n| ');
 
-  // 5. Clean up table rows: merge split single-cell header lines and ensure proper pipe closing
+  // 7. Clean up table rows: merge split single-cell header lines and ensure proper pipe closing
   const rawLines = text.split('\n');
   const mergedLines: string[] = [];
 
@@ -75,7 +81,7 @@ function preprocessMarkdown(content: string): string {
   // Ensure blank line after table end if not already there
   processed = processed.replace(/(\|[^\n]+\|)\n([^\n|#\s*-])/g, '$1\n\n$2');
 
-  return processed;
+  return processed.trim();
 }
 
 interface ChatProps {
@@ -334,7 +340,7 @@ export const Chat: React.FC<ChatProps> = ({ sidebarOpen, setSidebarOpen, onOpenS
                                 p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-zinc-200">{children}</p>,
                                 h1: ({ children }) => <h1 className="text-base font-semibold text-zinc-100 mt-5 mb-2.5 tracking-tight border-b border-zinc-800/80 pb-1.5">{children}</h1>,
                                 h2: ({ children }) => <h2 className="text-sm font-semibold text-zinc-100 mt-4 mb-2 tracking-tight">{children}</h2>,
-                                h3: ({ children }) => <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mt-3.5 mb-1.5">{children}</h3>,
+                                h3: ({ children }) => <h3 className="text-sm font-semibold text-zinc-300 mt-4 mb-2 tracking-tight">{children}</h3>,
                                 ul: ({ children }) => <ul className="list-disc list-outside pl-5 space-y-1.5 my-2.5 text-zinc-200">{children}</ul>,
                                 ol: ({ children }) => <ol className="list-decimal list-outside pl-5 space-y-1.5 my-2.5 text-zinc-200">{children}</ol>,
                                 li: ({ children }) => <li className="leading-relaxed pl-0.5">{children}</li>,
